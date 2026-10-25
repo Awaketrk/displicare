@@ -12,6 +12,9 @@
   <img src="docs/screenshot.png" width="360" alt="Displicare window">
 </p>
 
+> [!NOTE]
+> **Displicare is vibecoded.** It was designed and written through conversation with AI coding assistants (first Google Antigravity with Gemini, then Claude Code), with every build tested by hand on real hardware. The code is reviewed and covered by unit tests, but treat it like any hobby project: try it on your setup before relying on it.
+
 ## Features
 
 - **Hardware brightness** over DDC/CI: changes the real backlight of supported monitors.
