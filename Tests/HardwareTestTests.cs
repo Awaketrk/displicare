@@ -68,6 +68,27 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void RecoveryFileIsNotMistakenForAReport()
+        {
+            // Regression: 2.2.0 named it hardware-test-backlight.txt, which matches the report pattern
+            Assert.True(!HardwareTest.RecoveryFileName.StartsWith(HardwareTest.ReportFilePrefix), "recovery file outside the report pattern");
+            Assert.True(HardwareTest.LegacyRecoveryFileName.StartsWith(HardwareTest.ReportFilePrefix), "the old name is the one that clashed");
+        }
+
+        [Test]
+        public static void CurrentRecoveryFileWinsOverTheLegacyOne()
+        {
+            var legacy = new[] { @"\\.\DISPLAY1" + "\t40", @"\\.\DISPLAY2" + "\t25" };
+            var current = new[] { @"\\.\DISPLAY1" + "\t90" };
+            var merged = HardwareTest.MergeRecovery(legacy, current);
+            Assert.Equal(90, merged[@"\\.\DISPLAY1"], "current file wins");
+            Assert.Equal(25, merged[@"\\.\DISPLAY2"], "legacy-only display still restored");
+
+            Assert.Equal(2, HardwareTest.MergeRecovery(legacy, null).Count, "only the legacy file (2.2.0 leftover)");
+            Assert.Equal(0, HardwareTest.MergeRecovery(null, null).Count, "no files");
+        }
+
+        [Test]
         public static void SummaryLineNamesTheOutcome()
         {
             Assert.Equal("Result: ALL PASSED (12 passed, 0 failed)", HardwareTest.SummaryLine(12, 0, false), "pass");

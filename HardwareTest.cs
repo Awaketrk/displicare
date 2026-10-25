@@ -33,7 +33,11 @@ namespace Displicare
         internal const int BacklightTolerance = 1;
         private const int SettleMs = 400;
         private const int BacklightTimeoutMs = 3000;
-        private const string RecoveryFileName = "hardware-test-backlight.txt";
+        // Not "hardware-test-*": that's the report pattern users are asked to send
+        internal const string RecoveryFileName = "backlight-recovery.txt";
+        // What 2.2.0 wrote; still read so an interrupted 2.2.0 test is recovered after an update
+        internal const string LegacyRecoveryFileName = "hardware-test-backlight.txt";
+        internal const string ReportFilePrefix = "hardware-test-";
 
         private readonly MonitorEngine _engine;
         private readonly StringBuilder _report = new StringBuilder();
@@ -405,7 +409,7 @@ namespace Displicare
             try
             {
                 string path = Path.Combine(ConfigManager.GetSettingsFolder(),
-                    "hardware-test-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt");
+                    ReportFilePrefix + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt");
                 File.WriteAllText(path, _report.ToString(), Encoding.UTF8);
                 ReportPath = path;
             }
@@ -440,6 +444,11 @@ namespace Displicare
         private static string RecoveryPath()
         {
             return Path.Combine(ConfigManager.GetSettingsFolder(), RecoveryFileName);
+        }
+
+        private static string LegacyRecoveryPath()
+        {
+            return Path.Combine(ConfigManager.GetSettingsFolder(), LegacyRecoveryFileName);
         }
 
         private static void WriteRecoveryFile(List<Snapshot> snapshots)
@@ -483,6 +492,23 @@ namespace Displicare
         }
 
         /// <summary>
+        /// Combines recovery files (contents oldest first, null for a missing file): a later file's value for a
+        /// display replaces an earlier one's, so the current name wins over the 2.2.0 one.
+        /// </summary>
+        internal static Dictionary<string, int> MergeRecovery(params string[][] filesOldestFirst)
+        {
+            var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var lines in filesOldestFirst)
+            {
+                foreach (var kv in ParseRecovery(lines))
+                {
+                    result[kv.Key] = kv.Value;
+                }
+            }
+            return result;
+        }
+
+        /// <summary>
         /// Called at startup: puts back the backlight values an interrupted test recorded. Returns how many were restored.
         /// </summary>
         public static int RecoverInterruptedRun(MonitorEngine engine)
@@ -491,8 +517,14 @@ namespace Displicare
             try
             {
                 string path = RecoveryPath();
-                if (!File.Exists(path)) return 0;
-                var saved = ParseRecovery(File.ReadAllLines(path));
+                string legacyPath = LegacyRecoveryPath();
+                bool hasCurrent = File.Exists(path);
+                bool hasLegacy = File.Exists(legacyPath);
+                if (!hasCurrent && !hasLegacy) return 0;
+
+                var saved = MergeRecovery(
+                    hasLegacy ? File.ReadAllLines(legacyPath) : null,
+                    hasCurrent ? File.ReadAllLines(path) : null);
                 foreach (var d in engine.Displays)
                 {
                     int value;
@@ -501,7 +533,8 @@ namespace Displicare
                         restored++;
                     }
                 }
-                File.Delete(path);
+                if (hasCurrent) File.Delete(path);
+                if (hasLegacy) File.Delete(legacyPath);
                 App.Log("Restored the backlight on " + restored + " display(s) after an interrupted hardware test");
             }
             catch { }
