@@ -24,15 +24,20 @@ namespace Displicare
         [DllImport("Magnification.dll")] private static extern bool MagSetFullscreenColorEffect(ref MAGCOLOREFFECT effect);
 
         private bool _initialized;
-        private float _currentScale = 1f;
+        private float _r = 1f, _g = 1f, _b = 1f;
 
-        public float CurrentScale { get { return _currentScale; } }
+        private bool IsIdentity { get { return _r >= 1f && _g >= 1f && _b >= 1f; } }
 
-        /// <summary>Scales red, green and blue by <paramref name="scale"/> (1 = no change). Returns false if Windows refused.</summary>
-        public bool Apply(float scale)
+        /// <summary>
+        /// Scales red, green and blue separately (1 = no change), e.g. for warmth plus dimming.
+        /// Returns false if Windows refused.
+        /// </summary>
+        public bool Apply(float r, float g, float b)
         {
-            scale = Math.Max(0.01f, Math.Min(1f, scale));
-            if (Math.Abs(scale - _currentScale) < 0.0005f) return true;
+            r = Math.Max(0.01f, Math.Min(1f, r));
+            g = Math.Max(0.01f, Math.Min(1f, g));
+            b = Math.Max(0.01f, Math.Min(1f, b));
+            if (Math.Abs(r - _r) < 0.0005f && Math.Abs(g - _g) < 0.0005f && Math.Abs(b - _b) < 0.0005f) return true;
 
             if (!_initialized)
             {
@@ -46,15 +51,15 @@ namespace Displicare
 
             var effect = new MAGCOLOREFFECT { transform = new float[25] };
             // 5x5 row-major matrix: scale the RGB diagonal, keep alpha and the homogeneous term at 1
-            effect.transform[0] = scale;
-            effect.transform[6] = scale;
-            effect.transform[12] = scale;
+            effect.transform[0] = r;
+            effect.transform[6] = g;
+            effect.transform[12] = b;
             effect.transform[18] = 1f;
             effect.transform[24] = 1f;
 
             if (MagSetFullscreenColorEffect(ref effect))
             {
-                _currentScale = scale;
+                _r = r; _g = g; _b = b;
                 return true;
             }
 
@@ -65,8 +70,8 @@ namespace Displicare
 
         public void Clear()
         {
-            if (!_initialized || _currentScale >= 1f) return;
-            Apply(1f);
+            if (!_initialized || IsIdentity) return;
+            Apply(1f, 1f, 1f);
         }
 
         public void Dispose()

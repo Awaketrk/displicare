@@ -15,7 +15,7 @@
 ## Features
 
 - **Hardware brightness** over DDC/CI: changes the real backlight of supported monitors.
-- **Software brightness** for monitors without DDC/CI, and a dedicated **HDR mode** that dims correctly with Windows HDR on, including HDR games and video.
+- **Software brightness** for monitors without DDC/CI, and a dedicated **HDR mode**: with Windows HDR on, dimming, color temperature and RGB go through a Windows color filter, so they also work in HDR games and video.
 - **Color calibration**: color temperature (2500–10000 K), RGB gains, contrast and gamma.
 - **Solar Sync**: follows the sun's position at your location, dimming (and optionally warming) the screen toward night.
 - **Presets**: built-in profiles (Night Light, Paper Read, OLED Vivid, Gaming FPS and more), plus your own.
@@ -117,4 +117,4 @@ Between releases the version in `Properties\AssemblyInfo.cs` ends in `-test` (e.
 
 - **Location is estimated from your time zone.** To set exact coordinates, close the app, set `UserLatitude` / `UserLongitude` in `settings.json` and set `AutoLocation` to `false`.
 - **Other color tools conflict.** While custom settings are active, Displicare restores its calibration if f.lux, Windows Night Light or a vendor tool changes it.
-- **HDR mode** covers all screens at once and can't run together with Windows' own color filters. Color temperature, RGB, contrast and gamma may look different in HDR.
+- **HDR mode** covers all screens at once and can't run together with Windows' own color filters. Contrast and gamma still use the gamma ramp, which Windows doesn't define for HDR, so they may look different there.

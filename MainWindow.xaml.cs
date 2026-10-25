@@ -1097,9 +1097,9 @@ namespace Displicare
             });
             sp.Children.Add(new TextBlock
             {
-                Text = "Software brightness dims through a Windows color filter (down to 8% light), which also dims HDR games " +
-                       "and videos. It covers all screens and can't run together with Windows' own color filters. " +
-                       "Color temperature, RGB, contrast and gamma may look different in HDR. Hardware DDC/CI brightness works normally.",
+                Text = "Color temperature, RGB and software brightness (down to 8% light) go through a Windows color filter, " +
+                       "which also applies to HDR games and videos. It covers all screens and can't run together with Windows' own " +
+                       "color filters. Contrast and gamma may look different in HDR. Hardware DDC/CI brightness works normally.",
                 FontSize = 10.5,
                 TextWrapping = TextWrapping.Wrap,
                 LineHeight = 15,

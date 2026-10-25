@@ -92,6 +92,71 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void HdrRampLeavesWarmthAndGainsToTheFilter()
+        {
+            var d = Display(hardware: true, brightness: 50, hdr: true);
+            d.ColorTemperature = 3400; d.BlueGain = 0.5;
+            var ramp = Build(d);
+            Assert.Equal((ushort)65535, ramp[767], "blue white stays full on the HDR ramp");
+            Assert.Near(Identity(128), ramp[512 + 128], 1, "blue mid stays identity on the HDR ramp");
+        }
+
+        [Test]
+        public static void HdrRampStillAppliesContrastAndGamma()
+        {
+            var d = Display(hardware: true, brightness: 50, hdr: true);
+            d.Gamma = 1.5;
+            var ramp = Build(d);
+            Assert.True(ramp[128] > Identity(128) + 1000, "gamma 1.5 brightens mid-tones on the HDR ramp");
+        }
+
+        [Test]
+        public static void HdrFilterIsNeutralForDefaultHardwareDisplay()
+        {
+            float r, g, b;
+            MonitorEngine.ComputeHdrFilter(Display(hardware: true, brightness: 15, hdr: true), out r, out g, out b);
+            Assert.Near(1.0, r, 1e-6, "r"); Assert.Near(1.0, g, 1e-6, "g"); Assert.Near(1.0, b, 1e-6, "b");
+        }
+
+        [Test]
+        public static void HdrFilterDimsEvenlyInSoftwareMode()
+        {
+            float r, g, b;
+            MonitorEngine.ComputeHdrFilter(Display(hardware: false, brightness: 15, hdr: true), out r, out g, out b);
+            Assert.Near(0.218, r, 1e-5, "r"); Assert.Near(0.218, g, 1e-5, "g"); Assert.Near(0.218, b, 1e-5, "b");
+        }
+
+        [Test]
+        public static void HdrFilterWarmthMatchesSdrWhitePoint()
+        {
+            // The SDR ramp scales the encoded signal by KelvinToRgb; in linear light that's value^2.2
+            var d = Display(hardware: true, brightness: 50, hdr: true);
+            d.ColorTemperature = 3400;
+            double kr, kg, kb;
+            MonitorEngine.KelvinToRgb(3400, out kr, out kg, out kb);
+            float r, g, b;
+            MonitorEngine.ComputeHdrFilter(d, out r, out g, out b);
+            Assert.Near(1.0, r, 1e-6, "red stays full when warm");
+            Assert.Near(Math.Pow(kg, 2.2), g, 1e-5, "green in linear light");
+            Assert.Near(Math.Pow(kb, 2.2), b, 1e-5, "blue in linear light");
+            Assert.True(b < g && g < r, "warm: b < g < r");
+        }
+
+        [Test]
+        public static void HdrFilterCombinesWarmthGainsAndDimming()
+        {
+            var d = Display(hardware: false, brightness: 15, hdr: true);
+            d.ColorTemperature = 4500; d.RedGain = 2.0; d.GreenGain = 0.9;
+            double kr, kg, kb;
+            MonitorEngine.KelvinToRgb(4500, out kr, out kg, out kb);
+            float r, g, b;
+            MonitorEngine.ComputeHdrFilter(d, out r, out g, out b);
+            Assert.Near(0.218, r, 1e-5, "red gain above 1 is capped at full, then dimmed");
+            Assert.Near(Math.Pow(kg * 0.9, 2.2) * 0.218, g, 1e-5, "green: warmth × gain, linear, dimmed");
+            Assert.Near(Math.Pow(kb, 2.2) * 0.218, b, 1e-5, "blue: warmth, linear, dimmed");
+        }
+
+        [Test]
         public static void HdrFilterScaleMatchesTunedCurve()
         {
             Assert.Near(0.08, MonitorEngine.HdrFilterScale(0), 1e-6, "0%");

@@ -648,15 +648,21 @@ namespace Displicare
         /// </summary>
         internal static void BuildRamp(DisplayInfo disp, ushort[] baseline, ushort[] output)
         {
-            double tR = 1.0, tG = 1.0, tB = 1.0;
-            if (disp.ColorTemperature != 6500)
+            // In HDR, color temperature and RGB gains go through the color filter (ComputeHdrFilter) instead,
+            // since the ramp's behavior is undefined there; only contrast and gamma stay on the ramp
+            double finalRedGain = 1.0, finalGreenGain = 1.0, finalBlueGain = 1.0;
+            if (!disp.IsHdr)
             {
-                KelvinToRgb(disp.ColorTemperature, out tR, out tG, out tB);
-            }
+                double tR = 1.0, tG = 1.0, tB = 1.0;
+                if (disp.ColorTemperature != 6500)
+                {
+                    KelvinToRgb(disp.ColorTemperature, out tR, out tG, out tB);
+                }
 
-            double finalRedGain   = Math.Max(0.0, Math.Min(1.0, tR * disp.RedGain));
-            double finalGreenGain = Math.Max(0.0, Math.Min(1.0, tG * disp.GreenGain));
-            double finalBlueGain  = Math.Max(0.0, Math.Min(1.0, tB * disp.BlueGain));
+                finalRedGain   = Math.Max(0.0, Math.Min(1.0, tR * disp.RedGain));
+                finalGreenGain = Math.Max(0.0, Math.Min(1.0, tG * disp.GreenGain));
+                finalBlueGain  = Math.Max(0.0, Math.Min(1.0, tB * disp.BlueGain));
+            }
 
             // Software brightness via the GPU lookup table when DDC/CI is unsupported or turned off for this display
             // (not in HDR: there the ramp's behavior is undefined, and UpdateColorFilter dims via the color filter)
@@ -887,7 +893,11 @@ namespace Displicare
         public bool HasCustomGammaOrColor(DisplayInfo disp)
         {
             if (disp == null) return false;
-            bool hasSoftwareBrightness = disp.UsesSoftwareBrightness && !disp.IsHdr && disp.UserBrightness != 100;
+            bool curveChanged = Math.Abs(disp.Contrast - 1.0) > 0.001 || Math.Abs(disp.Gamma - 1.0) > 0.001;
+            // In HDR, brightness, warmth and gains live in the color filter; only the curve is on the ramp
+            if (disp.IsHdr) return curveChanged;
+
+            bool hasSoftwareBrightness = disp.UsesSoftwareBrightness && disp.UserBrightness != 100;
             return hasSoftwareBrightness ||
                    disp.ColorTemperature != 6500 ||
                    Math.Abs(disp.RedGain - 1.0) > 0.001 ||
@@ -1079,20 +1089,53 @@ namespace Displicare
         }
 
         /// <summary>
-        /// The color filter covers every screen, so it follows the first HDR display in software mode
-        /// and is cleared when there is none (HDR turned off, or switched to hardware brightness).
+        /// Per-channel filter values for an HDR display: color temperature × RGB gains, plus software
+        /// brightness when the display is in software mode. Warmth and gains are defined on the encoded
+        /// signal (like the SDR gamma ramp), while the compositor applies the filter to linear light in HDR,
+        /// so they're converted with the 2.2 display gamma to give the same white point as in SDR.
+        /// </summary>
+        internal static void ComputeHdrFilter(DisplayInfo d, out float r, out float g, out float b)
+        {
+            double tR = 1.0, tG = 1.0, tB = 1.0;
+            if (d.ColorTemperature != 6500)
+            {
+                KelvinToRgb(d.ColorTemperature, out tR, out tG, out tB);
+            }
+
+            double encR = Math.Max(0.0, Math.Min(1.0, tR * d.RedGain));
+            double encG = Math.Max(0.0, Math.Min(1.0, tG * d.GreenGain));
+            double encB = Math.Max(0.0, Math.Min(1.0, tB * d.BlueGain));
+
+            double light = d.UsesSoftwareBrightness ? HdrFilterScale(d.UserBrightness) : 1.0;
+
+            r = (float)(Math.Pow(encR, DisplayGamma) * light);
+            g = (float)(Math.Pow(encG, DisplayGamma) * light);
+            b = (float)(Math.Pow(encB, DisplayGamma) * light);
+        }
+
+        /// <summary>
+        /// The color filter covers every screen, so it follows one HDR display: the first in software mode
+        /// (its brightness matters most), otherwise the first HDR display. Cleared when no display is in HDR.
         /// </summary>
         private void UpdateColorFilter()
         {
+            DisplayInfo source = null;
             foreach (var d in Displays)
             {
-                if (d.IsHdr && d.UsesSoftwareBrightness)
-                {
-                    _colorFilter.Apply(HdrFilterScale(d.UserBrightness));
-                    return;
-                }
+                if (!d.IsHdr) continue;
+                if (d.UsesSoftwareBrightness) { source = d; break; }
+                if (source == null) source = d;
             }
-            _colorFilter.Clear();
+
+            if (source == null)
+            {
+                _colorFilter.Clear();
+                return;
+            }
+
+            float r, g, b;
+            ComputeHdrFilter(source, out r, out g, out b);
+            _colorFilter.Apply(r, g, b);
         }
 
         #endregion
