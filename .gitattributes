@@ -1,0 +1,12 @@
+# Normalize text files to LF in the repo, check out with native line endings
+* text=auto
+
+# Windows-only tooling: keep CRLF on disk
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.iss text eol=crlf
+*.csproj text eol=crlf
+
+# Binary assets
+*.png binary
+*.ico binary

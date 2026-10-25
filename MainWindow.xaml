@@ -1,0 +1,1233 @@
+﻿<Window x:Class="Displicare.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Displicare"
+        Height="640" Width="440"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        FontFamily="Segoe UI, Segoe UI Variable Display, sans-serif">
+
+    <Window.Resources>
+        <!-- Color Palette -->
+        <Color x:Key="BgDark">#110C11</Color>
+        <Color x:Key="CardBg">#1E1520</Color>
+        <Color x:Key="CardBgHover">#2A1E2B</Color>
+        <Color x:Key="CardBorder">#3A2A3B</Color>
+        <Color x:Key="AccentCyan">#FF6B5A</Color>
+        <Color x:Key="AccentAmber">#F59E0B</Color>
+        <Color x:Key="AccentViolet">#E879A6</Color>
+        <Color x:Key="TextPrimary">#FFFFFF</Color>
+        <Color x:Key="TextSecondary">#DDD0D6</Color>
+        <Color x:Key="TextMuted">#B3A3AE</Color>
+
+        <SolidColorBrush x:Key="BrushBgDark" Color="{StaticResource BgDark}" />
+        <SolidColorBrush x:Key="BrushCardBg" Color="{StaticResource CardBg}" />
+        <SolidColorBrush x:Key="BrushCardBorder" Color="{StaticResource CardBorder}" />
+        <SolidColorBrush x:Key="BrushAccentCyan" Color="{StaticResource AccentCyan}" />
+        <SolidColorBrush x:Key="BrushAccentAmber" Color="{StaticResource AccentAmber}" />
+        <SolidColorBrush x:Key="BrushAccentViolet" Color="{StaticResource AccentViolet}" />
+        <SolidColorBrush x:Key="BrushTextPrimary" Color="{StaticResource TextPrimary}" />
+        <SolidColorBrush x:Key="BrushTextSecondary" Color="{StaticResource TextSecondary}" />
+        <SolidColorBrush x:Key="BrushTextMuted" Color="{StaticResource TextMuted}" />
+
+        <!-- Modern Glowing Slider Style -->
+        <Style x:Key="ModernSlider" TargetType="Slider">
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid VerticalAlignment="Center">
+                            <Border x:Name="TrackBackground" Height="8" CornerRadius="4" Background="#2E2130" BorderBrush="#433145" BorderThickness="1" />
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate>
+                                                <Border Height="8" CornerRadius="4,0,0,4">
+                                                    <Border.Background>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                            <GradientStop Color="#FF6B5A" Offset="0"/>
+                                                            <GradientStop Color="#FF8A6B" Offset="1"/>
+                                                        </LinearGradientBrush>
+                                                    </Border.Background>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb>
+                                        <Thumb.Template>
+                                            <ControlTemplate>
+                                                <Grid Width="22" Height="22">
+                                                    <Ellipse Fill="#FF8A6B" Width="22" Height="22">
+                                                        <Ellipse.Effect>
+                                                            <DropShadowEffect Color="#FF6B5A" BlurRadius="10" ShadowDepth="0" Opacity="0.8"/>
+                                                        </Ellipse.Effect>
+                                                    </Ellipse>
+                                                    <Ellipse Fill="#FFFFFF" Width="18" Height="18"/>
+                                                    <Ellipse Fill="#170F17" Width="8" Height="8"/>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate>
+                                                <Border Background="Transparent" />
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Amber Accent Slider Style (Brightness) -->
+        <Style x:Key="AmberSlider" TargetType="Slider" BasedOn="{StaticResource ModernSlider}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid VerticalAlignment="Center">
+                            <Border x:Name="TrackBackground" Height="10" CornerRadius="5" Background="#2E2130" BorderBrush="#433145" BorderThickness="1" />
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate>
+                                                <Border Height="10" CornerRadius="5,0,0,5">
+                                                    <Border.Background>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                            <GradientStop Color="#F59E0B" Offset="0"/>
+                                                            <GradientStop Color="#FBBF24" Offset="1"/>
+                                                        </LinearGradientBrush>
+                                                    </Border.Background>
+                                                </Border>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb>
+                                        <Thumb.Template>
+                                            <ControlTemplate>
+                                                <Grid Width="24" Height="24">
+                                                    <Ellipse Fill="#FBBF24" Width="24" Height="24">
+                                                        <Ellipse.Effect>
+                                                            <DropShadowEffect Color="#F59E0B" BlurRadius="12" ShadowDepth="0" Opacity="0.9"/>
+                                                        </Ellipse.Effect>
+                                                    </Ellipse>
+                                                    <Ellipse Fill="#FFFFFF" Width="18" Height="18"/>
+                                                    <Ellipse Fill="#78350F" Width="8" Height="8"/>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate>
+                                                <Border Background="Transparent" />
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Temperature Spectrum Slider Style -->
+        <Style x:Key="TempSlider" TargetType="Slider">
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid VerticalAlignment="Center">
+                            <!-- Kelvin Gradient Spectrum Bar -->
+                            <Border Height="10" CornerRadius="5" BorderBrush="#4A3D45" BorderThickness="1">
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                        <GradientStop Color="#FF8C00" Offset="0.0"/> <!-- 2500K Candle Warm -->
+                                        <GradientStop Color="#FFA726" Offset="0.25"/> <!-- 3500K Warm -->
+                                        <GradientStop Color="#FFE0B2" Offset="0.45"/> <!-- 5000K Soft White -->
+                                        <GradientStop Color="#FFFFFF" Offset="0.60"/> <!-- 6500K Daylight -->
+                                        <GradientStop Color="#CFE2FE" Offset="0.80"/> <!-- 8000K Cool -->
+                                        <GradientStop Color="#90CAF9" Offset="1.0"/> <!-- 10000K Ice -->
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                            </Border>
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate><Border Background="Transparent"/></ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb>
+                                        <Thumb.Template>
+                                            <ControlTemplate>
+                                                <Grid Width="22" Height="22">
+                                                    <Ellipse Fill="#FFFFFF" Width="22" Height="22">
+                                                        <Ellipse.Effect>
+                                                            <DropShadowEffect Color="#000000" BlurRadius="8" ShadowDepth="2" Opacity="0.6"/>
+                                                        </Ellipse.Effect>
+                                                    </Ellipse>
+                                                    <Ellipse Fill="#1A111A" Width="8" Height="8"/>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate><Border Background="Transparent"/></ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Red / Green / Blue Accent Sliders -->
+        <Style x:Key="RedSlider" TargetType="Slider" BasedOn="{StaticResource ModernSlider}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid VerticalAlignment="Center">
+                            <Border Height="6" CornerRadius="3" Background="#2E2130"/>
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate>
+                                                <Border Height="6" CornerRadius="3,0,0,3" Background="#EF4444"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb>
+                                        <Thumb.Template>
+                                            <ControlTemplate>
+                                                <Ellipse Fill="#EF4444" Width="16" Height="16" Stroke="#FFFFFF" StrokeThickness="2"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate><Border Background="Transparent"/></ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="GreenSlider" TargetType="Slider" BasedOn="{StaticResource ModernSlider}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid VerticalAlignment="Center">
+                            <Border Height="6" CornerRadius="3" Background="#2E2130"/>
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate>
+                                                <Border Height="6" CornerRadius="3,0,0,3" Background="#10B981"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb>
+                                        <Thumb.Template>
+                                            <ControlTemplate>
+                                                <Ellipse Fill="#10B981" Width="16" Height="16" Stroke="#FFFFFF" StrokeThickness="2"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate><Border Background="Transparent"/></ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="BlueSlider" TargetType="Slider" BasedOn="{StaticResource ModernSlider}">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid VerticalAlignment="Center">
+                            <Border Height="6" CornerRadius="3" Background="#2E2130"/>
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate>
+                                                <Border Height="6" CornerRadius="3,0,0,3" Background="#3B82F6"/>
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb>
+                                        <Thumb.Template>
+                                            <ControlTemplate>
+                                                <Ellipse Fill="#3B82F6" Width="16" Height="16" Stroke="#FFFFFF" StrokeThickness="2"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate><Border Background="Transparent"/></ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Clean Pill Button Style -->
+        <Style x:Key="PillButton" TargetType="Button">
+            <Setter Property="Background" Value="#2E2130"/>
+            <Setter Property="Foreground" Value="#EDE3E7"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#433145"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#433145"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#FF8A6B"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#251B27"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Header Action Button Style -->
+        <Style x:Key="HeaderIconButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#B3A3AE"/>
+            <Setter Property="Width" Value="32"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="6">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="#2E2130"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Modern Toggle Switch Style -->
+        <Style x:Key="ModernCheckBox" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#EDE3E7"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border x:Name="switchTrack" Width="36" Height="20" CornerRadius="10" Background="#2E2130" BorderBrush="#433145" BorderThickness="1" Margin="0,0,10,0">
+                                <Ellipse x:Name="switchThumb" Width="14" Height="14" Fill="#B3A3AE" HorizontalAlignment="Left" Margin="2,0,0,0"/>
+                            </Border>
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="switchTrack" Property="Background" Value="#E8564A"/>
+                                <Setter TargetName="switchTrack" Property="BorderBrush" Value="#FF6B5A"/>
+                                <Setter TargetName="switchThumb" Property="HorizontalAlignment" Value="Right"/>
+                                <Setter TargetName="switchThumb" Property="Margin" Value="0,0,2,0"/>
+                                <Setter TargetName="switchThumb" Property="Fill" Value="#FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Dark ComboBox Style -->
+        <Style x:Key="DarkComboBox" TargetType="ComboBox">
+            <Setter Property="Background" Value="#2A1E2B"/>
+            <Setter Property="Foreground" Value="#F7F0F2"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderBrush" Value="#433145"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="28"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ContentPresenter Grid.Column="0" Margin="{TemplateBinding Padding}"
+                                                      Content="{TemplateBinding SelectionBoxItem}"
+                                                      ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                      VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="▾" Foreground="#B3A3AE" FontSize="10"
+                                               VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                </Grid>
+                            </Border>
+                            <ToggleButton IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                          Background="Transparent" Opacity="0" Focusable="False"/>
+                            <Popup x:Name="PART_Popup" IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                                <Border Background="#2A1E2B" BorderBrush="#433145" BorderThickness="1"
+                                        CornerRadius="8" Margin="0,2,0,0" MaxHeight="220">
+                                    <Border.Effect>
+                                        <DropShadowEffect Color="#000000" BlurRadius="16" ShadowDepth="4" Opacity="0.5"/>
+                                    </Border.Effect>
+                                    <ScrollViewer>
+                                        <ItemsPresenter/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#FF8A6B"/>
+                            </Trigger>
+                            <Trigger Property="IsDropDownOpen" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#FF6B5A"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="Foreground" Value="#EDE3E7"/>
+                        <Setter Property="FontSize" Value="12"/>
+                        <Setter Property="Padding" Value="10,7"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ComboBoxItem">
+                                    <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                            Padding="{TemplateBinding Padding}" CornerRadius="5" Margin="3,1">
+                                        <ContentPresenter/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsHighlighted" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="#3A2A3B"/>
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="#5A2433"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Symmetric Sync Toggle Button Style -->
+        <Style x:Key="SymmetricSyncToggle" TargetType="CheckBox">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <Border x:Name="Bd" Height="34" CornerRadius="8" Background="#271C29" BorderBrush="#4A3650" BorderThickness="1" Padding="10,0">
+                            <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <!-- When Checked (Sync Active) -->
+                                <StackPanel x:Name="PanelChecked" Orientation="Horizontal" Visibility="Visible">
+                                    <TextBlock Text="🔗" FontSize="11" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Sync All" FontSize="11.5" FontWeight="Bold" Foreground="#FF8A6B" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <!-- When Unchecked (Individual Mode) -->
+                                <StackPanel x:Name="PanelUnchecked" Orientation="Horizontal" Visibility="Collapsed">
+                                    <TextBlock Text="🔓" FontSize="11" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Separate" FontSize="11.5" FontWeight="SemiBold" Foreground="#B3A3AE" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#4A1E2C"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#FF6B5A"/>
+                                <Setter TargetName="PanelChecked" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="PanelUnchecked" Property="Visibility" Value="Collapsed"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="False">
+                                <Setter TargetName="Bd" Property="Background" Value="#241A26"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#3A2A3B"/>
+                                <Setter TargetName="PanelChecked" Property="Visibility" Value="Collapsed"/>
+                                <Setter TargetName="PanelUnchecked" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#FF8A6B"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- Slim dusk scrollbar (replaces the light default Windows scrollbar) -->
+        <Style TargetType="ScrollBar">
+            <Setter Property="Width" Value="6"/>
+            <Setter Property="MinWidth" Value="6"/>
+            <Setter Property="Margin" Value="4,2,0,2"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.Thumb>
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border x:Name="ThumbBd" CornerRadius="3" Background="#4A3650"/>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="ThumbBd" Property="Background" Value="#FF8A6B"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <!-- Main Outer Container with Drop Shadow and Glass Styling -->
+    <Border CornerRadius="20" BorderBrush="#4A3650" BorderThickness="1.2" Margin="10">
+        <!-- Dusk sky: plum at the top fading into night -->
+        <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#2A1730" Offset="0"/>
+                <GradientStop Color="#170F17" Offset="0.35"/>
+                <GradientStop Color="#110C11" Offset="1"/>
+            </LinearGradientBrush>
+        </Border.Background>
+        <Border.Effect>
+            <DropShadowEffect Color="#000000" BlurRadius="28" ShadowDepth="6" Opacity="0.6"/>
+        </Border.Effect>
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/> <!-- Titlebar Header -->
+                <RowDefinition Height="Auto"/> <!-- Navigation Tabs -->
+                <RowDefinition Height="*"/>    <!-- Active Tab Content Area -->
+                <RowDefinition Height="Auto"/> <!-- Bottom Status Bar -->
+            </Grid.RowDefinitions>
+
+            <!-- ================= HEADER BAR ================= -->
+            <Border Grid.Row="0" Padding="14,12,12,10" BorderThickness="0,0,0,2">
+                <!-- Horizon line under the header -->
+                <Border.BorderBrush>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                        <GradientStop Color="#00FF6B5A" Offset="0"/>
+                        <GradientStop Color="#FF6B5A" Offset="0.3"/>
+                        <GradientStop Color="#FFC37A" Offset="0.5"/>
+                        <GradientStop Color="#FF6B5A" Offset="0.7"/>
+                        <GradientStop Color="#00FF6B5A" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.BorderBrush>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- App Logo Glyph & Titles -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                        <!-- Dusk logo: setting sun over display scanlines -->
+                        <Image Source="pack://application:,,,/Assets/icon_64.png" Width="32" Height="32" Margin="0,0,10,0"
+                               RenderOptions.BitmapScalingMode="HighQuality"/>
+
+                        <StackPanel VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="DISPLICARE" FontWeight="Bold" FontSize="15" Foreground="#FBF6F7"/>
+                                <Border Background="#2E2130" CornerRadius="4" Padding="5,1" Margin="6,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock x:Name="TxtHardwareBadge" Text="OLED • DDC/CI" FontSize="9" FontWeight="Bold" Foreground="#FF8A6B"/>
+                                </Border>
+                            </StackPanel>
+                            <TextBlock x:Name="TxtHeaderSubtitle" Text="Display &amp; Color Studio" FontSize="11" Foreground="#B3A3AE"/>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Top Action Buttons (Pin, Refresh, Close) -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="BtnPin" Style="{StaticResource HeaderIconButton}" ToolTip="Keep open when clicking outside" Click="BtnPin_Click">
+                            <TextBlock x:Name="TxtPinIcon" Text="📌" FontSize="13" Foreground="#B3A3AE"/>
+                        </Button>
+                        <Button x:Name="BtnRefresh" Style="{StaticResource HeaderIconButton}" ToolTip="Refresh connected displays" Click="BtnRefresh_Click">
+                            <TextBlock Text="🔄" FontSize="13" Foreground="#B3A3AE"/>
+                        </Button>
+                        <Button x:Name="BtnClose" Style="{StaticResource HeaderIconButton}" ToolTip="Minimize to system tray" Click="BtnClose_Click">
+                            <TextBlock Text="✕" FontSize="14" FontWeight="Bold" Foreground="#B3A3AE"/>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- ================= NAVIGATION TABS ================= -->
+            <Border Grid.Row="1" Padding="12,8,12,6">
+                <Border Background="#191119" CornerRadius="10" Padding="3" BorderBrush="#2A1E2B" BorderThickness="1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <RadioButton x:Name="TabBrightness" GroupName="NavTabs" IsChecked="True" Checked="Tab_Checked"
+                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Cursor="Hand">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="b" CornerRadius="8" Padding="6,6" Background="Transparent">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="☀️" Margin="0,0,5,0" FontSize="12"/>
+                                            <TextBlock Text="Brightness" FontSize="11.5" FontWeight="SemiBold" Foreground="#B3A3AE" x:Name="t"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="b" Property="Background" Value="#2E2130"/>
+                                            <Setter TargetName="t" Property="Foreground" Value="#FBF6F7"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="t" Property="Foreground" Value="#EDE3E7"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                        </RadioButton>
+
+                        <RadioButton x:Name="TabColor" Grid.Column="1" GroupName="NavTabs" Checked="Tab_Checked"
+                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Cursor="Hand">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="b" CornerRadius="8" Padding="6,6" Background="Transparent">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="🌡️" Margin="0,0,5,0" FontSize="12"/>
+                                            <TextBlock Text="Color" FontSize="11.5" FontWeight="SemiBold" Foreground="#B3A3AE" x:Name="t"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="b" Property="Background" Value="#2E2130"/>
+                                            <Setter TargetName="t" Property="Foreground" Value="#FBF6F7"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="t" Property="Foreground" Value="#EDE3E7"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                        </RadioButton>
+
+                        <RadioButton x:Name="TabPresets" Grid.Column="2" GroupName="NavTabs" Checked="Tab_Checked"
+                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Cursor="Hand">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="b" CornerRadius="8" Padding="6,6" Background="Transparent">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="🎨" Margin="0,0,5,0" FontSize="12"/>
+                                            <TextBlock Text="Presets" FontSize="11.5" FontWeight="SemiBold" Foreground="#B3A3AE" x:Name="t"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="b" Property="Background" Value="#2E2130"/>
+                                            <Setter TargetName="t" Property="Foreground" Value="#FBF6F7"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="t" Property="Foreground" Value="#EDE3E7"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                        </RadioButton>
+
+                        <RadioButton x:Name="TabMonitors" Grid.Column="3" GroupName="NavTabs" Checked="Tab_Checked"
+                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Cursor="Hand">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="b" CornerRadius="8" Padding="6,6" Background="Transparent">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="🖥️" Margin="0,0,5,0" FontSize="12"/>
+                                            <TextBlock Text="Displays" FontSize="11.5" FontWeight="SemiBold" Foreground="#B3A3AE" x:Name="t"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="b" Property="Background" Value="#2E2130"/>
+                                            <Setter TargetName="t" Property="Foreground" Value="#FBF6F7"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="t" Property="Foreground" Value="#EDE3E7"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                        </RadioButton>
+                    </Grid>
+                </Border>
+            </Border>
+
+            <!-- ================= TAB CONTENT PANELS ================= -->
+            <Grid Grid.Row="2" Margin="12,4,12,8">
+
+                <!-- ===== TAB 1: BRIGHTNESS ===== -->
+                <ScrollViewer x:Name="PanelBrightness" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <!-- Monitor Target & Sync Mode Strip (Symmetric & Balanced) -->
+                        <Border Background="{StaticResource BrushCardBg}" CornerRadius="12" Padding="14,12" BorderBrush="{StaticResource BrushCardBorder}" BorderThickness="1" Margin="0,0,0,10">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="120"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Left: Target Display -->
+                                <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                    <TextBlock Text="TARGET DISPLAY" FontSize="10.5" FontWeight="Bold" Foreground="#B3A3AE" Margin="2,0,0,5"/>
+                                    <ComboBox x:Name="CmbDisplaySelect" Style="{StaticResource DarkComboBox}" Height="34"
+                                              SelectionChanged="CmbDisplaySelect_SelectionChanged"/>
+                                </StackPanel>
+
+                                <!-- Right: Sync Mode Pill Toggle (Symmetric Height & Alignment) -->
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="SYNC MODE" FontSize="10.5" FontWeight="Bold" Foreground="#B3A3AE" Margin="2,0,0,5" HorizontalAlignment="Center"/>
+                                    <CheckBox x:Name="ChkSyncDisplays" Style="{StaticResource SymmetricSyncToggle}"
+                                              ToolTip="Synchronize brightness, color temperature, and calibration across all connected displays"
+                                              IsChecked="True" Checked="ChkSyncDisplays_Checked" Unchecked="ChkSyncDisplays_Checked"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- Primary Master Brightness Hero Card -->
+                        <Border Background="#1E1520" CornerRadius="14" Padding="16,14" BorderBrush="#3A2A3B" BorderThickness="1" Margin="0,0,0,10">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,8">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock x:Name="TxtBrightnessIcon" Text="☀️" FontSize="16" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Display Brightness" FontSize="14" FontWeight="SemiBold" Foreground="#FBF6F7" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <Border HorizontalAlignment="Right" Background="#2E2130" CornerRadius="8" Padding="10,2">
+                                        <TextBlock x:Name="TxtBrightnessValue" Text="80%" FontSize="18" FontWeight="Bold" Foreground="#FBBF24"/>
+                                    </Border>
+                                </Grid>
+
+                                <!-- Brightness Slider -->
+                                <Slider x:Name="SliderBrightness" Style="{StaticResource AmberSlider}" Minimum="0" Maximum="100" Value="80"
+                                        ValueChanged="SliderBrightness_ValueChanged" Margin="0,4,0,12"/>
+
+                                <!-- Quick Jump Buttons -->
+                                <UniformGrid Columns="5" Margin="0,0,0,2">
+                                    <Button Content="20%" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickBrightness_Click" Tag="20"/>
+                                    <Button Content="40%" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickBrightness_Click" Tag="40"/>
+                                    <Button Content="60%" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickBrightness_Click" Tag="60"/>
+                                    <Button Content="80%" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickBrightness_Click" Tag="80"/>
+                                    <Button Content="100%" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickBrightness_Click" Tag="100"/>
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Solar Circadian Sync Hero Card -->
+                        <Border Background="#191119" CornerRadius="14" Padding="14,12" BorderBrush="#3A2A3B" BorderThickness="1" Margin="0,0,0,10">
+                            <StackPanel>
+                                <!-- Top Row: Icon, Title, Toggle Switch -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Sun Aperture Glyph -->
+                                    <Border Grid.Column="0" Width="34" Height="34" CornerRadius="9" Background="#271C29" BorderBrush="#FF8A6B" BorderThickness="1" Margin="0,0,10,0">
+                                        <TextBlock x:Name="TxtSolarIcon" Text="🌅" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+
+                                    <!-- Title & Description -->
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Solar Circadian Sync" FontSize="13" FontWeight="Bold" Foreground="#FBF6F7"/>
+                                            <Border x:Name="BadgeSolarActive" Background="#5A2433" CornerRadius="4" Padding="5,1" Margin="7,0,0,0" VerticalAlignment="Center" Visibility="Collapsed">
+                                                <TextBlock Text="AUTO SYNC" FontSize="8.5" FontWeight="Bold" Foreground="#FF8A6B"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock x:Name="TxtSolarSubtitle" Text="Auto-adapts brightness &amp; warmth with sun position" FontSize="10.5" Foreground="#B3A3AE" Margin="0,2,0,0"/>
+                                    </StackPanel>
+
+                                    <!-- Modern Toggle Switch -->
+                                    <CheckBox x:Name="ChkSolarSync" Grid.Column="2" Style="{StaticResource ModernCheckBox}" VerticalAlignment="Center"
+                                              Checked="ChkSolarSync_Checked" Unchecked="ChkSolarSync_Checked"/>
+                                </Grid>
+
+                                <!-- Live Sun Position Panel -->
+                                <Border x:Name="PanelSolarLive" Background="#241A26" CornerRadius="10" Padding="12,9" Margin="0,10,0,0" BorderBrush="#3A2A3B" BorderThickness="1">
+                                    <StackPanel>
+                                        <!-- Sun Phase & Sunrise/Sunset Times -->
+                                        <Grid Margin="0,0,0,6">
+                                            <TextBlock x:Name="TxtSolarPhase" Text="☀️ Daylight • Elevation: +18.5°" FontSize="11" FontWeight="SemiBold" Foreground="#FF8A6B" VerticalAlignment="Center"/>
+                                            <TextBlock x:Name="TxtSolarTimes" Text="Sunrise 07:22 • Sunset 18:14" FontSize="10.5" Foreground="#B3A3AE" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                        </Grid>
+
+                                        <!-- Sun Path Arc Progress Bar -->
+                                        <Grid Height="6" Margin="0,0,0,7">
+                                            <Border CornerRadius="3" Background="#2E2130"/>
+                                            <ProgressBar x:Name="BarSunJourney" Height="6" Minimum="0" Maximum="100" Value="60" BorderThickness="0" Background="Transparent">
+                                                <ProgressBar.Foreground>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                        <GradientStop Color="#F59E0B" Offset="0.0"/>
+                                                        <GradientStop Color="#FF8A6B" Offset="0.5"/>
+                                                        <GradientStop Color="#F97316" Offset="1.0"/>
+                                                    </LinearGradientBrush>
+                                                </ProgressBar.Foreground>
+                                            </ProgressBar>
+                                        </Grid>
+
+                                        <!-- Live Target Targets & Manual Override Reset -->
+                                        <Grid>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Border Background="#2E2130" CornerRadius="5" Padding="6,2" Margin="0,0,6,0">
+                                                    <TextBlock x:Name="TxtSolarTargetBrightness" Text="Target: 81%" FontSize="10.5" FontWeight="Bold" Foreground="#FBBF24"/>
+                                                </Border>
+                                                <Border Background="#2E2130" CornerRadius="5" Padding="6,2">
+                                                    <TextBlock x:Name="TxtSolarTargetKelvin" Text="Warmth: 6250 K" FontSize="10.5" FontWeight="Bold" Foreground="#FF8A6B"/>
+                                                </Border>
+                                            </StackPanel>
+
+                                            <Button x:Name="BtnResumeSolar" Content="↺ Re-Sync Sun" Style="{StaticResource PillButton}"
+                                                    HorizontalAlignment="Right" Padding="8,2" FontSize="10" Visibility="Collapsed"
+                                                    Click="BtnResumeSolar_Click"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Expandable Settings: Day / Night Brightness & Warmth Ranges -->
+                                <Expander x:Name="ExpanderSolarSettings" Header="Customize Day &amp; Night Schedule" FontSize="11" FontWeight="SemiBold" Foreground="#857580" Margin="0,6,0,0">
+                                    <StackPanel Margin="0,8,0,0">
+                                        <!-- Brightness Range Row -->
+                                        <Grid Margin="0,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                                <TextBlock Text="DAY BRIGHTNESS" FontSize="10" FontWeight="Bold" Foreground="#B3A3AE" Margin="0,0,0,3"/>
+                                                <Slider x:Name="SliderSolarDayB" Style="{StaticResource AmberSlider}" Minimum="50" Maximum="100" Value="85"
+                                                        ValueChanged="SliderSolarLimits_ValueChanged"/>
+                                                <TextBlock x:Name="TxtSolarDayBVal" Text="85% Max Day" FontSize="10.5" Foreground="#DDD0D6" Margin="0,2,0,0"/>
+                                            </StackPanel>
+
+                                            <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                                <TextBlock Text="NIGHT FLOOR" FontSize="10" FontWeight="Bold" Foreground="#B3A3AE" Margin="0,0,0,3"/>
+                                                <Slider x:Name="SliderSolarNightB" Style="{StaticResource AmberSlider}" Minimum="10" Maximum="80" Value="35"
+                                                        ValueChanged="SliderSolarLimits_ValueChanged"/>
+                                                <TextBlock x:Name="TxtSolarNightBVal" Text="35% Min Night" FontSize="10.5" Foreground="#DDD0D6" Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <!-- Separator Line -->
+                                        <Border Height="1" Background="#2E2130" Margin="0,4,0,8"/>
+
+                                        <!-- Color Temperature Adaptation Choice Row -->
+                                        <Grid Margin="0,0,0,8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                <TextBlock Text="Adapt Color Warmth (Blue Light Filter)" FontSize="11" FontWeight="SemiBold" Foreground="#EDE3E7"/>
+                                                <TextBlock Text="Shift to warm amber at sunset &amp; night (optional)" FontSize="10" Foreground="#857580"/>
+                                            </StackPanel>
+                                            <CheckBox x:Name="ChkSolarColorSync" Grid.Column="1" Style="{StaticResource ModernCheckBox}" VerticalAlignment="Center"
+                                                      Checked="ChkSolarColorSync_Checked" Unchecked="ChkSolarColorSync_Checked"/>
+                                        </Grid>
+
+                                        <!-- Warmth Range Row -->
+                                        <Grid x:Name="PanelSolarWarmthSettings" Margin="0,0,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                                <TextBlock Text="DAY COLOR TEMP" FontSize="10" FontWeight="Bold" Foreground="#B3A3AE" Margin="0,0,0,3"/>
+                                                <Slider x:Name="SliderSolarDayK" Style="{StaticResource TempSlider}" Minimum="5000" Maximum="7500" Value="6500"
+                                                        ValueChanged="SliderSolarLimits_ValueChanged"/>
+                                                <TextBlock x:Name="TxtSolarDayKVal" Text="6500 K" FontSize="10.5" Foreground="#DDD0D6" Margin="0,2,0,0"/>
+                                            </StackPanel>
+
+                                            <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                                <TextBlock Text="NIGHT WARMTH" FontSize="10" FontWeight="Bold" Foreground="#B3A3AE" Margin="0,0,0,3"/>
+                                                <Slider x:Name="SliderSolarNightK" Style="{StaticResource TempSlider}" Minimum="2500" Maximum="4500" Value="3400"
+                                                        ValueChanged="SliderSolarLimits_ValueChanged"/>
+                                                <TextBlock x:Name="TxtSolarNightKVal" Text="3400 K" FontSize="10.5" Foreground="#DDD0D6" Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+                                </Expander>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Individual Monitor Details Card -->
+                        <Border Background="#1E1520" CornerRadius="12" Padding="14,12" BorderBrush="#312333" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Detected Monitors" FontSize="12" FontWeight="SemiBold" Foreground="#B3A3AE" Margin="0,0,0,8"/>
+                                <StackPanel x:Name="StackMonitorRows"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ===== TAB 2: COLOR & TEMPERATURE ===== -->
+                <ScrollViewer x:Name="PanelColor" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <!-- Color Temperature Card -->
+                        <Border Background="#1E1520" CornerRadius="14" Padding="16,14" BorderBrush="#3A2A3B" BorderThickness="1" Margin="0,0,0,10">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,6">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="🌡️" FontSize="15" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Color Temperature" FontSize="14" FontWeight="SemiBold" Foreground="#FBF6F7" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <!-- Kelvin Value & Color Tint Swatch -->
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                        <Border x:Name="BorderKelvinSwatch" Width="14" Height="14" CornerRadius="7" Background="#FFFFFF" Margin="0,0,6,0" BorderBrush="#66575F" BorderThickness="1"/>
+                                        <Border Background="#2E2130" CornerRadius="6" Padding="8,2">
+                                            <TextBlock x:Name="TxtKelvinValue" Text="6500 K" FontSize="13" FontWeight="Bold" Foreground="#FF8A6B"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+
+                                <TextBlock x:Name="TxtKelvinDesc" Text="Natural Daylight (Standard sRGB reference)" FontSize="11" Foreground="#B3A3AE" Margin="0,0,0,8"/>
+
+                                <!-- Kelvin Slider -->
+                                <Slider x:Name="SliderKelvin" Style="{StaticResource TempSlider}" Minimum="2500" Maximum="10000" Value="6500"
+                                        ValueChanged="SliderKelvin_ValueChanged" Margin="0,2,0,12"/>
+
+                                <!-- Quick Kelvin Buttons -->
+                                <UniformGrid Columns="4">
+                                    <Button Content="2700K Warm" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickKelvin_Click" Tag="2700"/>
+                                    <Button Content="3400K Night" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickKelvin_Click" Tag="3400"/>
+                                    <Button Content="6500K Day" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickKelvin_Click" Tag="6500"/>
+                                    <Button Content="8500K Ice" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickKelvin_Click" Tag="8500"/>
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- RGB Channel Balance Tuning -->
+                        <Border Background="#1E1520" CornerRadius="14" Padding="16,14" BorderBrush="#3A2A3B" BorderThickness="1" Margin="0,0,0,10">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <TextBlock Text="RGB Channel Calibration" FontSize="13" FontWeight="SemiBold" Foreground="#FBF6F7"/>
+                                    <Button Content="Reset Channels" HorizontalAlignment="Right" Style="{StaticResource PillButton}" Padding="8,3" FontSize="11" Click="BtnResetRgb_Click"/>
+                                </Grid>
+
+                                <!-- Red Channel -->
+                                <Grid Margin="0,2,0,4">
+                                    <TextBlock Text="Red Gain" FontSize="12" FontWeight="SemiBold" Foreground="#EF4444" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="TxtRedVal" Text="100%" FontSize="12" FontWeight="Bold" Foreground="#FBF6F7" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="SliderRed" Style="{StaticResource RedSlider}" Minimum="0.5" Maximum="1.5" Value="1.0" ValueChanged="SliderRgb_ValueChanged"/>
+
+                                <!-- Green Channel -->
+                                <Grid Margin="0,6,0,4">
+                                    <TextBlock Text="Green Gain" FontSize="12" FontWeight="SemiBold" Foreground="#10B981" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="TxtGreenVal" Text="100%" FontSize="12" FontWeight="Bold" Foreground="#FBF6F7" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="SliderGreen" Style="{StaticResource GreenSlider}" Minimum="0.5" Maximum="1.5" Value="1.0" ValueChanged="SliderRgb_ValueChanged"/>
+
+                                <!-- Blue Channel -->
+                                <Grid Margin="0,6,0,4">
+                                    <TextBlock Text="Blue Gain" FontSize="12" FontWeight="SemiBold" Foreground="#3B82F6" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="TxtBlueVal" Text="100%" FontSize="12" FontWeight="Bold" Foreground="#FBF6F7" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="SliderBlue" Style="{StaticResource BlueSlider}" Minimum="0.5" Maximum="1.5" Value="1.0" ValueChanged="SliderRgb_ValueChanged"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Contrast & Gamma Curves -->
+                        <Border Background="{StaticResource BrushCardBg}" CornerRadius="14" Padding="16,14" BorderBrush="{StaticResource BrushCardBorder}" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="Tone Curves &amp; Contrast" FontSize="13" FontWeight="SemiBold" Foreground="#FFFFFF" Margin="0,0,0,10"/>
+
+                                <!-- Contrast -->
+                                <Grid Margin="0,2,0,4">
+                                    <TextBlock Text="Contrast" FontSize="12" FontWeight="SemiBold" Foreground="#FBF6F7"/>
+                                    <TextBlock x:Name="TxtContrastVal" Text="1.00" FontSize="12" FontWeight="Bold" Foreground="#FBF6F7" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="SliderContrast" Style="{StaticResource ModernSlider}" Minimum="0.6" Maximum="1.4" Value="1.0" ValueChanged="SliderCurves_ValueChanged"/>
+
+                                <!-- Gamma -->
+                                <Grid Margin="0,8,0,4">
+                                    <TextBlock Text="Gamma Curve" FontSize="12" FontWeight="SemiBold" Foreground="#FBF6F7"/>
+                                    <TextBlock x:Name="TxtGammaVal" Text="1.00" FontSize="12" FontWeight="Bold" Foreground="#FBF6F7" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <Slider x:Name="SliderGamma" Style="{StaticResource ModernSlider}" Minimum="0.6" Maximum="1.6" Value="1.0" ValueChanged="SliderCurves_ValueChanged"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ===== TAB 3: PRESETS & PROFILES ===== -->
+                <ScrollViewer x:Name="PanelPresets" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="Quick Color Profiles" FontSize="13" FontWeight="SemiBold" Foreground="#FBF6F7" Margin="0,2,0,8"/>
+
+                        <!-- Grid of 6 Presets -->
+                        <UniformGrid Columns="2" Margin="0,0,0,12">
+                            <!-- Preset 1: Balanced -->
+                            <Button Margin="3" Style="{StaticResource PillButton}" Padding="10,12" Click="BtnPreset_Click" Tag="Balanced">
+                                <StackPanel HorizontalAlignment="Left">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="☀️" FontSize="16" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Balanced sRGB" FontWeight="Bold" FontSize="13" Foreground="#FFFFFF"/>
+                                    </StackPanel>
+                                    <TextBlock Text="6500K neutral accuracy" FontSize="11" Foreground="#DDD0D6" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Preset 2: Night Light -->
+                            <Button Margin="3" Style="{StaticResource PillButton}" Padding="10,12" Click="BtnPreset_Click" Tag="Night Light">
+                                <StackPanel HorizontalAlignment="Left">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="🌙" FontSize="16" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Night Light" FontWeight="Bold" FontSize="13" Foreground="#FBBF24"/>
+                                    </StackPanel>
+                                    <TextBlock Text="3400K amber sleep guard" FontSize="11" Foreground="#DDD0D6" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Preset 3: Paper Read -->
+                            <Button Margin="3" Style="{StaticResource PillButton}" Padding="10,12" Click="BtnPreset_Click" Tag="Paper Read">
+                                <StackPanel HorizontalAlignment="Left">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="📖" FontSize="16" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Paper Read" FontWeight="Bold" FontSize="13" Foreground="#FFFFFF"/>
+                                    </StackPanel>
+                                    <TextBlock Text="4600K soft e-ink tone" FontSize="11" Foreground="#DDD0D6" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Preset 4: OLED Vivid -->
+                            <Button Margin="3" Style="{StaticResource PillButton}" Padding="10,12" Click="BtnPreset_Click" Tag="OLED Vivid">
+                                <StackPanel HorizontalAlignment="Left">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="✨" FontSize="16" Margin="0,0,6,0"/>
+                                        <TextBlock Text="OLED Vivid" FontWeight="Bold" FontSize="13" Foreground="#FF8A6B"/>
+                                    </StackPanel>
+                                    <TextBlock Text="Deep blacks &amp; rich pop" FontSize="11" Foreground="#DDD0D6" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Preset 5: Gaming FPS -->
+                            <Button Margin="3" Style="{StaticResource PillButton}" Padding="10,12" Click="BtnPreset_Click" Tag="Gaming FPS">
+                                <StackPanel HorizontalAlignment="Left">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="🎯" FontSize="16" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Gaming FPS" FontWeight="Bold" FontSize="13" Foreground="#FFFFFF"/>
+                                    </StackPanel>
+                                    <TextBlock Text="Shadow boost clarity" FontSize="11" Foreground="#DDD0D6" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- Preset 6: Cool Daylight -->
+                            <Button Margin="3" Style="{StaticResource PillButton}" Padding="10,12" Click="BtnPreset_Click" Tag="Cool Daylight">
+                                <StackPanel HorizontalAlignment="Left">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="❄️" FontSize="16" Margin="0,0,6,0"/>
+                                        <TextBlock Text="Cool Daylight" FontWeight="Bold" FontSize="13" Foreground="#93C5FD"/>
+                                    </StackPanel>
+                                    <TextBlock Text="8500K crisp cool balance" FontSize="11" Foreground="#DDD0D6" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Button>
+                        </UniformGrid>
+
+                        <!-- Custom Presets Section (Replaces legacy Windows ICC segment) -->
+                        <Border Background="#1E1520" CornerRadius="14" Padding="16,14" BorderBrush="#3A2A3B" BorderThickness="1">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,4">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="⭐" FontSize="14" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Custom Saved Presets" FontSize="13" FontWeight="Bold" Foreground="#FBF6F7" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Grid>
+                                <TextBlock Text="Save any custom mix of brightness, warmth, RGB channel gains, contrast &amp; gamma." FontSize="10.5" Foreground="#B3A3AE" Margin="0,0,0,10"/>
+
+                                <!-- Save Current Settings as Preset Input Row -->
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Background="#201722" BorderBrush="#433145" BorderThickness="1" CornerRadius="8" Padding="10,5" Margin="0,0,8,0">
+                                        <TextBox x:Name="TxtCustomPresetName" Background="Transparent" Foreground="#FBF6F7" BorderThickness="0"
+                                                 FontSize="12" VerticalAlignment="Center" Text="My Preset" MaxLength="40" CaretBrush="#FF8A6B"
+                                                 KeyDown="TxtCustomPresetName_KeyDown"/>
+                                    </Border>
+                                    <Button x:Name="BtnSaveCustomPreset" Grid.Column="1" Content="💾 Save Current"
+                                            Style="{StaticResource PillButton}" Background="#E8564A" Foreground="#FFFFFF"
+                                            BorderBrush="#FF8A6B" Padding="12,5" FontWeight="SemiBold" FontSize="11.5"
+                                            Click="BtnSaveCustomPreset_Click"
+                                            ToolTip="Save current brightness, warmth, RGB gains, contrast and gamma as a reusable preset"/>
+                                </Grid>
+
+                                <!-- Dynamic List of Custom Presets -->
+                                <StackPanel x:Name="StackCustomPresets"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ===== TAB 4: DISPLAYS & SETTINGS ===== -->
+                <ScrollViewer x:Name="PanelMonitors" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="Display Hardware Details" FontSize="13" FontWeight="SemiBold" Foreground="#FBF6F7" Margin="0,2,0,8"/>
+                        <StackPanel x:Name="StackDisplayCards" Margin="0,0,0,12"/>
+
+                        <!-- App Preferences Card -->
+                        <Border Background="#1E1520" CornerRadius="14" Padding="16,14" BorderBrush="#3A2A3B" BorderThickness="1">
+                            <StackPanel>
+                                <TextBlock Text="General Settings" FontSize="13" FontWeight="SemiBold" Foreground="#FBF6F7" Margin="0,0,0,12"/>
+
+                                <CheckBox x:Name="ChkRunAtStartup" Content="Start Displicare with Windows" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,10" Checked="ChkRunAtStartup_Checked" Unchecked="ChkRunAtStartup_Checked"/>
+                                <CheckBox x:Name="ChkStartMinimized" Content="Start minimized to system tray" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,10" IsChecked="True" Checked="ChkStartMinimized_Checked" Unchecked="ChkStartMinimized_Checked"/>
+                                <CheckBox x:Name="ChkRestoreOnExit" Content="Restore default gamma on app exit" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,12" Checked="ChkRestoreOnExit_Checked" Unchecked="ChkRestoreOnExit_Checked"/>
+
+                                <Button Content="Open Windows Display Settings ↗" Style="{StaticResource PillButton}" Padding="12,8" HorizontalAlignment="Left" Click="BtnOpenWindowsDisplay_Click"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- About Card -->
+                        <Border Background="#1E1520" CornerRadius="14" Padding="16,14" BorderBrush="#3A2A3B" BorderThickness="1" Margin="0,10,0,0">
+                            <StackPanel>
+                                <TextBlock Text="About" FontSize="13" FontWeight="SemiBold" Foreground="#FBF6F7" Margin="0,0,0,12"/>
+
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Image Source="pack://application:,,,/Assets/icon_64.png" Width="44" Height="44" Margin="0,0,12,0"
+                                           VerticalAlignment="Top" RenderOptions.BitmapScalingMode="HighQuality"/>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Displicare" FontSize="14" FontWeight="Bold" Foreground="#FBF6F7" VerticalAlignment="Center"/>
+                                            <Border Background="#4A1E2C" CornerRadius="4" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                <TextBlock x:Name="TxtAboutVersion" Text="v0.0.0" FontSize="10.5" FontWeight="Bold" Foreground="#FF8A6B"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock x:Name="TxtAboutDetails" Text="" FontSize="10.5" Foreground="#B3A3AE" Margin="0,4,0,0" LineHeight="16" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Copy Version Info" Style="{StaticResource PillButton}" Padding="12,8" Margin="0,0,8,0" Click="BtnCopyVersion_Click"/>
+                                    <Button Content="Open Settings Folder ↗" Style="{StaticResource PillButton}" Padding="12,8" Click="BtnOpenSettingsFolder_Click"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+
+            <!-- ================= BOTTOM STATUS BAR ================= -->
+            <Border Grid.Row="3" Padding="14,10,14,12" BorderBrush="#2A1E2B" BorderThickness="0,1,0,0" Background="#150F15" CornerRadius="0,0,19,19">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock x:Name="TxtStatus" Text="Ready • Primary: AORUS FO32U2 (1440p)" FontSize="11" Foreground="#B3A3AE"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Content="Reset All" Style="{StaticResource PillButton}" Margin="0,0,8,0" Padding="10,4" Click="BtnResetAll_Click"/>
+                        <Button x:Name="BtnMinimize" Content="Minimize" Style="{StaticResource PillButton}" Padding="10,4" Click="BtnMinimize_Click" ToolTip="Minimize to system tray (exit via tray icon right-click)"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

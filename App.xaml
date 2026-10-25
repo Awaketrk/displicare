@@ -1,0 +1,9 @@
+﻿<Application x:Class="Displicare.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <!-- Application-wide modern resources -->
+        <FontFamily x:Key="MainFont">Segoe UI Variable Display, Segoe UI, sans-serif</FontFamily>
+    </Application.Resources>
+</Application>
