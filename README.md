@@ -116,6 +116,21 @@ Each release goes to `dist\v<version>\` and contains exactly the installer, the 
 
 The installer installs per-user to `%LOCALAPPDATA%\Programs\Displicare` (no admin needed), with optional desktop icon and start-with-Windows tasks.
 
+### Versions
+Between releases, `AssemblyInformationalVersion` in `Properties\AssemblyInfo.cs` carries a `-test` suffix (e.g. `2.1.1-test`), so the About card shows whether you're running a test build. The release script replaces it with the plain version.
+
+### GitHub Actions
+`.github/workflows/build.yml` runs on GitHub:
+- **Every push to `main` and every pull request:** compiles on a clean Windows machine; the exe is kept as a downloadable artifact for 14 days.
+- **Pushing a tag like `v2.1.1`:** runs `build-release.ps1` with that version and publishes a GitHub Release with the installer, portable zip and `SHA256SUMS.txt`. An existing release with that tag is never overwritten.
+- **Manual run** (Actions tab › Build › Run workflow, enter a version): builds the release packages as an artifact without publishing, to check packaging before tagging.
+
+To release from CI instead of locally: bump nothing by hand, just tag and push:
+```bash
+git tag v2.1.1
+git push origin v2.1.1
+```
+
 ---
 
 ## Known limitations
