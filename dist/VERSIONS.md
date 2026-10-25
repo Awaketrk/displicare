@@ -183,3 +183,13 @@ This catalog maintains a permanent history of all official Lumina Display releas
   - **Portable Package**: `Displicare-v2.1.1-Portable.zip` (119.2 KB)
     - SHA256: `FF0E0A6D5D899E9A499AB78D333BF0103B940FCBE6957D330F2FD9140D0A5073`
 - **Notes**: Color temperature and RGB through the color filter in HDR; fixes for settings files with missing fields and for oversized preset lists; installer links point to the GitHub repo; unit tests and GitHub Actions releases.
+
+### Version 2.2.0 Release
+- **Release Date**: 2026-10-25 14:25:28
+- **Assembly Version**: 2.2.0.0
+- **Packages in dist/v2.2.0/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.2.0-Setup.exe` (2.07 MB)
+    - SHA256: `D85F958230CC46255111FD3DD53E51BA2599A1832704C8A5E87F0F26FE15254E`
+  - **Portable Package**: `Displicare-v2.2.0-Portable.zip` (132.6 KB)
+    - SHA256: `C80A88D54533AE292B3E76FD7E984E22E1BE06268E8B5122BF1293017248361D`
+- **Notes**: In-app hardware test (About card or `--hardware-test`) that checks the gamma ramp, HDR color filter and DDC/CI backlight and saves a report; fix for a contrast/gamma curve left by a crash being kept as the monitor's baseline.
