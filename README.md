@@ -1,143 +1,120 @@
-# Displicare — Display & Color Studio
+<p align="center">
+  <img src="Assets/icon_128.png" width="96" alt="Displicare logo">
+</p>
 
-A Windows system-tray app for controlling monitor brightness and color: hardware brightness over DDC/CI, software color/gamma calibration through the GPU gamma ramp, and an optional "Solar Sync" mode that follows the sun's position through the day.
+<h1 align="center">Displicare</h1>
 
-> The app was originally called **LuminaDisplay**. Displicare still migrates settings from the old `%LOCALAPPDATA%\LuminaDisplay` folder and removes the old `LuminaDisplay` startup entry.
+<p align="center">
+  Monitor brightness, color and sun-synced dimming for Windows, from the system tray.
+</p>
 
-- **Platform:** Windows 10/11, x64
-- **Stack:** C# / WPF, .NET Framework 4.8, no NuGet dependencies (Win32 P/Invoke only)
-- **Current installer version:** 2.0.4 (`installer.iss`)
-
----
+<p align="center">
+  <img src="docs/screenshot.png" width="360" alt="Displicare window">
+</p>
 
 ## Features
 
-### Brightness
-- **Hardware brightness (DDC/CI)** — on monitors that support it, the real backlight is changed via `dxva2.dll` (`SetMonitorBrightness`). Slider changes are queued and sent at most every 35 ms on a background thread so dragging never freezes the UI or floods the monitor's I²C bus.
-- **Software brightness (fallback)** — on monitors without DDC/CI (or with hardware brightness turned off for that display), brightness is simulated by scaling the GPU gamma ramp. **This can only dim to about 50%**: the slider maps 0–100% to a 50–100% white point.
+- **Hardware brightness** over DDC/CI: changes the real backlight of supported monitors.
+- **Software brightness** for monitors without DDC/CI, and a dedicated **HDR mode** that dims correctly with Windows HDR on, including HDR games and video.
+- **Color calibration**: color temperature (2500–10000 K), RGB gains, contrast and gamma.
+- **Solar Sync**: follows the sun's position at your location, dimming (and optionally warming) the screen toward night.
+- **Presets**: built-in profiles (Night Light, Paper Read, OLED Vivid, Gaming FPS and more), plus your own.
+- **Multi-monitor**: control every display together or each one separately; settings are remembered per monitor.
+- **Lightweight**: no dependencies, ~0% CPU when idle, no global input hooks. Calibration is only rewritten when Windows or a game resets it.
 
-### HDR displays
-When Windows HDR is on for a display, Microsoft documents the gamma ramp as having undefined behavior, so software brightness switches to a **Windows color filter** (the Magnification API full-screen color effect, the same mechanism as Windows' own color filters):
-- 0% = 8% light, 100% = unchanged, scaling linearly in between (the 8% floor was tuned so night levels match an AORUS FO32U2's hardware brightness). That's far deeper than Windows' SDR content brightness slider, which stops at 80 nits.
-- It is applied by the compositor, so it dims everything, including HDR games and videos.
-- Windows removes it automatically when the app exits or crashes, so it can never be left stuck on.
-- It covers all screens at once (it follows the first HDR display in software mode), and it can't run while Windows' own color filters or Magnifier color inversion are on.
-- Hardware DDC/CI brightness is unaffected by HDR.
-- The Displays tab shows an "HDR is on" note on each HDR display. Color temperature, RGB, contrast and gamma still go through the gamma ramp and may look different in HDR.
+## Install
 
-### Color calibration
-All applied through `SetDeviceGammaRamp`, per display:
-- Color temperature, 2500–10000 K (Tanner Helland Planckian approximation)
-- Red / green / blue gain
-- Contrast (0.5–1.8) and gamma (0.5–2.5)
+Download the latest release from the [Releases page](https://github.com/Awaketrk/displicare/releases):
 
-The ramp is clamped to stay within what Windows' driver accepts (±32760 from identity, monotonic), so very aggressive settings are softened rather than rejected.
+- **`Displicare-vX.Y.Z-Setup.exe`**: installs for the current user (no admin rights needed), optionally starting with Windows.
+- **`Displicare-vX.Y.Z-Portable.zip`**: unzip anywhere and run; settings stay in that folder.
 
-### Presets
-Built-in: **Balanced** (6500 K), **Night Light** (3400 K), **Paper Read** (4600 K warm sepia), **OLED Vivid** (extra contrast/gamma), **Gaming FPS** (shadow-boosted gamma), **Cool Daylight** (8500 K).
-You can also save the current settings as named **custom presets**, which appear in the window and in the tray menu.
+Each release includes `SHA256SUMS.txt` to verify the downloads.
 
-### Solar Sync (circadian mode)
-Every 20 seconds the app computes the sun's elevation for your location using NOAA solar-position formulas and blends between your **day** and **night** limits:
-- Sun ≥ +20° → full day values; sun ≤ −12° → full night values; smooth cosine curve in between.
-- Brightness always follows the sun; **color warmth is optional** ("Adapt Color Warmth" toggle).
-- Configurable limits: day brightness 50–100%, night floor 10–85%, day color 4500–8000 K, night warmth 2000–4500 K.
-- Moving a slider manually pauses Solar Sync ("manual override"); **↺ Re-Sync Sun** resumes it.
+**Requirements:** Windows 10 or 11 (x64) with .NET Framework 4.8, which is built into current Windows versions.
 
-### Multi-monitor
-- "Sync All" applies settings to every display; "Separate" lets you target one display.
-- Settings are saved per display, matched by device name (`\\.\DISPLAY1`) or monitor model name, so they survive re-plugging.
-- Monitor plug/unplug, resolution changes and session unlock trigger a re-scan.
+## Usage
 
-### Tray integration
-- **Left-click** the tray icon: open/close the control window (docked next to the taskbar, DPI-aware, works with taskbar on any edge).
-- **Right-click**: Solar Sync toggle, quick brightness (25/50/75/100%), color presets, open controls, reset to default, start with Windows, exit.
-- The window hides when it loses focus unless pinned. Closing it only hides it; use **Exit** in the tray menu to quit.
-- Single instance: launching it again just brings up the existing window.
+- **Left-click** the tray icon to open the control window; it hides again when you click elsewhere (pin it to keep it open).
+- **Right-click** the tray icon for quick brightness, presets, Solar Sync, start with Windows and Exit.
+- The **Displays** tab shows each monitor's capabilities, lets you switch between hardware and software brightness, and has the About card with the version.
 
----
+### Brightness modes
 
-## How it works
-
-| File | Responsibility |
-|---|---|
-| `App.xaml.cs` | Startup, single-instance mutex + wake-up broadcast message, command-line args, logging to `app.log` (trimmed when > 512 KB). |
-| `MainWindow.xaml(.cs)` | The UI (tabs: Brightness, Color, Presets, Displays) and all orchestration: applying settings, Solar Sync loop, presets, and the "keep calibration applied" machinery. |
-| `MonitorEngine.cs` | Display enumeration, DDC/CI brightness, gamma-ramp generation, Kelvin→RGB, built-in presets. |
-| `SolarEngine.cs` | Sun elevation, sunrise/sunset, phase names, day/night blending. |
-| `ConfigManager.cs` | Load/save settings JSON (validated and clamped on load, written atomically via temp file + replace), Run-at-startup registry key, migration from the old `LuminaDisplay` settings folder. |
-| `TrayManager.cs` | Tray icon, dark context menu, flyout positioning. |
-| `HdrHelper.cs` | Windows HDR detection via the DisplayConfig API. |
-| `ColorFilterDimmer.cs` | Full-screen dimming through the Magnification API color effect, used for software brightness in HDR. |
-### Keeping the calibration applied
-Windows, GPU drivers, fullscreen games, Alt+Tab and the Start menu can silently reset the gamma ramp. For any display with non-default settings the app checks the ramp:
-- every **1.5 s** (background-priority watchdog);
-- in a short burst (5 × 35 ms) after foreground-window changes and shell events;
-- after display changes and session unlock.
-
-Each check **reads** the GPU ramp and compares it with the last one the app wrote; it only **writes** again if something reset it. Writing the ramp can cause a visible frame hitch on some GPUs/VRR setups, so it's avoided when nothing changed. There are no global mouse or keyboard hooks.
-
----
-
-## Settings & files
-
-| Mode | Settings | Log |
+| Mode | Used when | How it dims |
 |---|---|---|
-| Installed (default) | `%LOCALAPPDATA%\Displicare\settings.json` | `%LOCALAPPDATA%\Displicare\app.log` |
-| Portable | `settings.json` next to the exe | `app.log` next to the exe |
+| Hardware | Monitor supports DDC/CI (and it's enabled for that display) | Sets the monitor's own backlight |
+| Software | No DDC/CI, or hardware turned off for that display | GPU gamma ramp, down to ~30% light |
+| Software, HDR | Windows HDR is on | Windows color filter, down to 8% light; also dims HDR content |
 
-Portable mode is active if you pass `--portable`, or if `portable.dat` or `settings.json` exists next to the exe.
+Turn on DDC/CI in your monitor's on-screen menu to get hardware brightness.
 
-**Start with Windows** writes `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Displicare` = `"<exe>"`, plus `--minimized` when "Start minimized to system tray" is on and `--portable` in portable mode.
+### Settings and command line
 
-### Command-line options
+Settings and the log live in `%LOCALAPPDATA%\Displicare` (portable builds: next to the exe).
+
 | Option | Effect |
 |---|---|
-| `--minimized`, `-m` | Start hidden in the tray |
-| `--portable`, `-p` | Force portable mode |
-
----
+| `--minimized`, `-m` | Start in the tray |
+| `--portable`, `-p` | Keep settings next to the exe |
 
 ## Building
 
-Requirements: .NET Framework 4.8 developer pack / MSBuild, and [Inno Setup 6](https://jrsoftware.org/isinfo.php) for the installer.
+Requirements: Windows, the .NET Framework 4.8 Developer Pack, and [Inno Setup 6](https://jrsoftware.org/isinfo.php) for the installer.
 
-Plain build:
 ```bash
 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe Displicare.csproj /p:Configuration=Release /p:Platform=x64
 ```
-Output: `bin\Release\Displicare.exe`.
 
-Full release (bumps version in `AssemblyInfo.cs` and `installer.iss`, builds, creates the portable zip and installer, writes SHA256 sums and appends to `dist\VERSIONS.md`):
+The app is written to `bin\Release\Displicare.exe`.
+
+### Tests
+
+The test project needs no packages: it's a small console runner that exits with an error if any test fails.
+
 ```bash
-powershell -ExecutionPolicy Bypass -File build-release.ps1 -Version 2.0.5 -Notes "What changed"
+C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe Tests\Displicare.Tests.csproj /p:Configuration=Release /p:Platform=x64
 ```
-Each release goes to `dist\v<version>\` and contains exactly the installer, the portable zip and `SHA256SUMS.txt`. An existing version folder is not overwritten unless you pass `-Force`. Both scripts find the project folder themselves, and `ISCC.exe` is looked up in the standard Inno Setup 6 install locations.
 
-The installer installs per-user to `%LOCALAPPDATA%\Programs\Displicare` (no admin needed), with optional desktop icon and start-with-Windows tasks.
+```bash
+.\Tests\bin\Release\Displicare.Tests.exe
+```
 
-### Versions
-Between releases, `AssemblyInformationalVersion` in `Properties\AssemblyInfo.cs` carries a `-test` suffix (e.g. `2.1.1-test`), so the About card shows whether you're running a test build. The release script replaces it with the plain version.
+They cover the brightness and gamma math, the sun-position calculations and settings validation.
 
-### GitHub Actions
-`.github/workflows/build.yml` runs on GitHub:
-- **Every push to `main` and every pull request:** compiles on a clean Windows machine; the exe is kept as a downloadable artifact for 14 days.
-- **Pushing a tag like `v2.1.1`:** runs `build-release.ps1` with that version and publishes a GitHub Release with the installer, portable zip and `SHA256SUMS.txt`. An existing release with that tag is never overwritten.
-- **Manual run** (Actions tab › Build › Run workflow, enter a version): builds the release packages as an artifact without publishing, to check packaging before tagging.
+### Releasing
 
-To release from CI instead of locally: bump nothing by hand, just tag and push:
+GitHub Actions builds and tests every push. To publish a release, tag a commit and push the tag:
+
 ```bash
 git tag v2.1.1
+```
+
+```bash
 git push origin v2.1.1
 ```
 
----
+The workflow runs the tests, builds the installer and portable zip with `build-release.ps1`, and publishes them as a GitHub Release. To check the packages without publishing, run the **Build** workflow manually from the Actions tab and enter a version.
+
+`build-release.ps1 -Version X.Y.Z` does the same locally, writing to `dist\vX.Y.Z\`.
+
+Between releases the version in `Properties\AssemblyInfo.cs` ends in `-test` (e.g. `2.1.1-test`), so test builds are easy to tell apart in the About card. The release script replaces it with the plain version.
+
+## Project layout
+
+| Path | What's in it |
+|---|---|
+| `MainWindow.xaml(.cs)` | The UI and the logic tying everything together |
+| `MonitorEngine.cs` | Display detection, DDC/CI, gamma ramps, presets |
+| `SolarEngine.cs` | Sun position and Solar Sync targets |
+| `ConfigManager.cs` | Settings loading/validation and start-with-Windows |
+| `ColorFilterDimmer.cs`, `HdrHelper.cs` | HDR detection and HDR dimming |
+| `TrayManager.cs` | Tray icon and menu |
+| `Tests/` | Unit tests |
+| `build-release.ps1`, `installer.iss` | Release packaging |
 
 ## Known limitations
 
-- **No real location detection.** With "auto location" on (the default), latitude/longitude are *guessed from your time zone* — e.g. any "Turkey" zone → Istanbul, "Eastern" → New York, "Central" (non-Europe) → Chicago, otherwise longitude from UTC offset and latitude 40°. There is no UI to enter coordinates; to set them, close the app, edit `UserLatitude` / `UserLongitude` in `settings.json` and set `AutoLocation` to `false`.
-- **Software dimming floor is ~50%** on non-DDC/CI displays.
-- **Conflicts with other gamma tools.** While it has non-default settings active, Displicare restores its own ramp whenever another tool (f.lux, Windows Night Light, vendor calibration, some HDR/ICC setups) changes it.
-- **Portable mode isn't entirely registry-free**: enabling "Start with Windows" writes the `HKCU\...\Run` value.
-- Turning Solar Sync off returns all displays to your last manual brightness and color temperature (applied to every display, since Solar Sync drives every display).
-- "Restore default gamma on app exit" is off by default, so quitting leaves the last ramp in place until Windows resets it (sign-out, display change, etc.).
+- **Location is estimated from your time zone.** To set exact coordinates, close the app, set `UserLatitude` / `UserLongitude` in `settings.json` and set `AutoLocation` to `false`.
+- **Other color tools conflict.** While custom settings are active, Displicare restores its calibration if f.lux, Windows Night Light or a vendor tool changes it.
+- **HDR mode** covers all screens at once and can't run together with Windows' own color filters. Color temperature, RGB, contrast and gamma may look different in HDR.

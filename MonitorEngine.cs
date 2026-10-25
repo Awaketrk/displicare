@@ -383,7 +383,7 @@ namespace Displicare
             }
         }
 
-        private static bool IsNeutralBaseline(ushort[] ramp)
+        internal static bool IsNeutralBaseline(ushort[] ramp)
         {
             if (ramp == null || ramp.Length != 768) return false;
             if (ramp[0] > 2000 || ramp[256] > 2000 || ramp[512] > 2000) return false;
@@ -636,7 +636,7 @@ namespace Displicare
         /// signal^2.2, the signal is scaled by L^(1/2.2). The previous linear signal scale plus an extra gamma
         /// darkening produced far less light than the same number on the hardware slider.
         /// </summary>
-        private static double SoftwareBrightnessScale(int brightness)
+        internal static double SoftwareBrightnessScale(int brightness)
         {
             double bFrac = Math.Max(0, Math.Min(100, brightness)) / 100.0;
             double luminance = SoftwareMinLuminance + (1.0 - SoftwareMinLuminance) * bFrac;
@@ -646,7 +646,7 @@ namespace Displicare
         /// <summary>
         /// Computes the ramp for a display's settings on top of the given baseline (null = linear identity).
         /// </summary>
-        private static void BuildRamp(DisplayInfo disp, ushort[] baseline, ushort[] output)
+        internal static void BuildRamp(DisplayInfo disp, ushort[] baseline, ushort[] output)
         {
             double tR = 1.0, tG = 1.0, tB = 1.0;
             if (disp.ColorTemperature != 6500)

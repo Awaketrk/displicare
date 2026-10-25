@@ -27,11 +27,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compile (Release x64)
+      - name: Compile app and tests (Release x64)
         shell: pwsh
         run: |
-          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe" Displicare.csproj /p:Configuration=Release /p:Platform=x64 /t:Rebuild /verbosity:minimal /nologo
+          & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe" Tests/Displicare.Tests.csproj /p:Configuration=Release /p:Platform=x64 /t:Rebuild /verbosity:minimal /nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          ./Tests/bin/Release/Displicare.Tests.exe
+          exit $LASTEXITCODE
 
       - uses: actions/upload-artifact@v4
         with:
@@ -64,6 +70,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      # build-release.ps1 runs the unit tests first and stops if any fail
       - name: Build release packages
         shell: pwsh
         run: ./build-release.ps1 -Version '${{ steps.ver.outputs.version }}'

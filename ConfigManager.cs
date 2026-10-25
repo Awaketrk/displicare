@@ -40,6 +40,19 @@ namespace Displicare
 
         public CustomPreset()
         {
+            SetDefaults();
+        }
+
+        // DataContract deserialization skips constructors, so fields missing from the JSON (older settings
+        // files, hand edits) would otherwise be 0/false: RGB gains of 0.1 after clamping, hardware mode off.
+        [OnDeserializing]
+        private void OnDeserializing(StreamingContext context)
+        {
+            SetDefaults();
+        }
+
+        private void SetDefaults()
+        {
             Id = Guid.NewGuid().ToString("N");
             Name = "My Preset";
             Brightness = 80;
@@ -87,6 +100,19 @@ namespace Displicare
 
         public DisplayProfile()
         {
+            SetDefaults();
+        }
+
+        // DataContract deserialization skips constructors, so fields missing from the JSON (older settings
+        // files, hand edits) would otherwise be 0/false: RGB gains of 0.1 after clamping, hardware mode off.
+        [OnDeserializing]
+        private void OnDeserializing(StreamingContext context)
+        {
+            SetDefaults();
+        }
+
+        private void SetDefaults()
+        {
             Brightness = 80;
             ColorTemperature = 6500;
             RedGain = 1.0;
@@ -102,6 +128,19 @@ namespace Displicare
     public class AppSettings
     {
         public AppSettings()
+        {
+            SetDefaults();
+        }
+
+        // DataContract deserialization skips constructors, so fields missing from the JSON (older settings
+        // files, hand edits) would otherwise be 0/false: RGB gains of 0.1 after clamping, hardware mode off.
+        [OnDeserializing]
+        private void OnDeserializing(StreamingContext context)
+        {
+            SetDefaults();
+        }
+
+        private void SetDefaults()
         {
             Brightness = 80;
             ColorTemperature = 6500;
@@ -208,6 +247,9 @@ namespace Displicare
         private const string AppRegistryName = "Displicare";
         private const string LegacyAppRegistryName = "LuminaDisplay";
 
+        internal const int MaxCustomPresets = 100;
+        internal const int MaxPresetNameLength = 40;
+
         private static double Sanitize(double val, double min, double max, double def)
         {
             if (double.IsNaN(val) || double.IsInfinity(val)) return def;
@@ -271,6 +313,99 @@ namespace Displicare
             return targetPath;
         }
 
+        /// <summary>
+        /// Deserializes settings JSON and clamps every value into range. Returns null if the JSON is unusable.
+        /// Kept free of file and registry access so it can be unit tested.
+        /// </summary>
+        internal static AppSettings Parse(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return null;
+
+            AppSettings settings;
+            try
+            {
+                using (MemoryStream ms = new MemoryStream(Encoding.UTF8.GetBytes(json)))
+                {
+                    DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(AppSettings));
+                    settings = ser.ReadObject(ms) as AppSettings;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+            if (settings == null) return null;
+
+            settings.Brightness = SanitizeInt(settings.Brightness, 0, 100, 80);
+            settings.ColorTemperature = SanitizeInt(settings.ColorTemperature, 2000, 10000, 6500);
+            settings.RedGain = Sanitize(settings.RedGain, 0.1, 2.0, 1.0);
+            settings.GreenGain = Sanitize(settings.GreenGain, 0.1, 2.0, 1.0);
+            settings.BlueGain = Sanitize(settings.BlueGain, 0.1, 2.0, 1.0);
+            settings.Contrast = Sanitize(settings.Contrast, 0.5, 1.8, 1.0);
+            settings.Gamma = Sanitize(settings.Gamma, 0.5, 2.5, 1.0);
+
+            // Ranges match the Solar Sync sliders so a saved value is never silently clamped by the UI
+            settings.SolarDayBrightness = SanitizeInt(settings.SolarDayBrightness, 50, 100, 85);
+            settings.SolarNightBrightness = SanitizeInt(settings.SolarNightBrightness, 10, 80, 35);
+            settings.SolarDayKelvin = SanitizeInt(settings.SolarDayKelvin, 5000, 7500, 6500);
+            settings.SolarNightKelvin = SanitizeInt(settings.SolarNightKelvin, 2500, 4500, 3400);
+
+            settings.UserLatitude = Sanitize(settings.UserLatitude, -90.0, 90.0, 41.01);
+            settings.UserLongitude = Sanitize(settings.UserLongitude, -180.0, 180.0, 28.97);
+
+            if (Math.Abs(settings.UserLatitude) < 0.001 && Math.Abs(settings.UserLongitude) < 0.001)
+            {
+                settings.AutoLocation = true;
+                double lat, lon;
+                SolarEngine.GetDefaultCoordinates(out lat, out lon);
+                settings.UserLatitude = lat;
+                settings.UserLongitude = lon;
+            }
+
+            if (settings.DisplayProfiles == null)
+            {
+                settings.DisplayProfiles = new List<DisplayProfile>();
+            }
+            settings.DisplayProfiles.RemoveAll(p => p == null);
+            foreach (var p in settings.DisplayProfiles)
+            {
+                p.Brightness = SanitizeInt(p.Brightness, 0, 100, 80);
+                p.ColorTemperature = SanitizeInt(p.ColorTemperature, 2000, 10000, 6500);
+                p.RedGain = Sanitize(p.RedGain, 0.1, 2.0, 1.0);
+                p.GreenGain = Sanitize(p.GreenGain, 0.1, 2.0, 1.0);
+                p.BlueGain = Sanitize(p.BlueGain, 0.1, 2.0, 1.0);
+                p.Contrast = Sanitize(p.Contrast, 0.5, 1.8, 1.0);
+                p.Gamma = Sanitize(p.Gamma, 0.5, 2.5, 1.0);
+            }
+
+            if (settings.CustomPresets == null)
+            {
+                settings.CustomPresets = new List<CustomPreset>();
+            }
+            settings.CustomPresets.RemoveAll(cp => cp == null);
+            if (settings.CustomPresets.Count > MaxCustomPresets)
+            {
+                // A tampered settings file shouldn't be able to flood the UI and tray menu
+                settings.CustomPresets.RemoveRange(MaxCustomPresets, settings.CustomPresets.Count - MaxCustomPresets);
+            }
+            // Sanitize whatever is kept (previously skipped when the list had to be trimmed)
+            foreach (var cp in settings.CustomPresets)
+            {
+                if (string.IsNullOrWhiteSpace(cp.Id)) cp.Id = Guid.NewGuid().ToString("N");
+                if (string.IsNullOrWhiteSpace(cp.Name)) cp.Name = "Custom Preset";
+                if (cp.Name.Length > MaxPresetNameLength) cp.Name = cp.Name.Substring(0, MaxPresetNameLength);
+                cp.Brightness = SanitizeInt(cp.Brightness, 0, 100, 80);
+                cp.ColorTemperature = SanitizeInt(cp.ColorTemperature, 2000, 10000, 6500);
+                cp.RedGain = Sanitize(cp.RedGain, 0.1, 2.0, 1.0);
+                cp.GreenGain = Sanitize(cp.GreenGain, 0.1, 2.0, 1.0);
+                cp.BlueGain = Sanitize(cp.BlueGain, 0.1, 2.0, 1.0);
+                cp.Contrast = Sanitize(cp.Contrast, 0.5, 1.8, 1.0);
+                cp.Gamma = Sanitize(cp.Gamma, 0.5, 2.5, 1.0);
+            }
+
+            return settings;
+        }
+
         public static AppSettings Load()
         {
             try
@@ -278,88 +413,11 @@ namespace Displicare
                 string path = GetConfigPath();
                 if (File.Exists(path))
                 {
-                    string json = File.ReadAllText(path, Encoding.UTF8);
-                    if (!string.IsNullOrWhiteSpace(json))
+                    AppSettings settings = Parse(File.ReadAllText(path, Encoding.UTF8));
+                    if (settings != null)
                     {
-                        using (MemoryStream ms = new MemoryStream(Encoding.UTF8.GetBytes(json)))
-                        {
-                            DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(AppSettings));
-                            AppSettings settings = ser.ReadObject(ms) as AppSettings;
-                            if (settings != null)
-                            {
-                                settings.StartWithWindows = IsRunOnStartupEnabled();
-                                settings.Brightness = SanitizeInt(settings.Brightness, 0, 100, 80);
-                                settings.ColorTemperature = SanitizeInt(settings.ColorTemperature, 2000, 10000, 6500);
-                                settings.RedGain = Sanitize(settings.RedGain, 0.1, 2.0, 1.0);
-                                settings.GreenGain = Sanitize(settings.GreenGain, 0.1, 2.0, 1.0);
-                                settings.BlueGain = Sanitize(settings.BlueGain, 0.1, 2.0, 1.0);
-                                settings.Contrast = Sanitize(settings.Contrast, 0.5, 1.8, 1.0);
-                                settings.Gamma = Sanitize(settings.Gamma, 0.5, 2.5, 1.0);
-
-                                // Ranges match the Solar Sync sliders so a saved value is never silently clamped by the UI
-                                settings.SolarDayBrightness = SanitizeInt(settings.SolarDayBrightness, 50, 100, 85);
-                                settings.SolarNightBrightness = SanitizeInt(settings.SolarNightBrightness, 10, 80, 35);
-                                settings.SolarDayKelvin = SanitizeInt(settings.SolarDayKelvin, 5000, 7500, 6500);
-                                settings.SolarNightKelvin = SanitizeInt(settings.SolarNightKelvin, 2500, 4500, 3400);
-
-                                settings.UserLatitude = Sanitize(settings.UserLatitude, -90.0, 90.0, 41.01);
-                                settings.UserLongitude = Sanitize(settings.UserLongitude, -180.0, 180.0, 28.97);
-
-                                if (Math.Abs(settings.UserLatitude) < 0.001 && Math.Abs(settings.UserLongitude) < 0.001)
-                                {
-                                    settings.AutoLocation = true;
-                                    double lat, lon;
-                                    SolarEngine.GetDefaultCoordinates(out lat, out lon);
-                                    settings.UserLatitude = lat;
-                                    settings.UserLongitude = lon;
-                                }
-
-                                if (settings.DisplayProfiles == null)
-                                {
-                                    settings.DisplayProfiles = new List<DisplayProfile>();
-                                }
-                                else
-                                {
-                                    foreach (var p in settings.DisplayProfiles)
-                                    {
-                                        p.Brightness = SanitizeInt(p.Brightness, 0, 100, 80);
-                                        p.ColorTemperature = SanitizeInt(p.ColorTemperature, 2000, 10000, 6500);
-                                        p.RedGain = Sanitize(p.RedGain, 0.1, 2.0, 1.0);
-                                        p.GreenGain = Sanitize(p.GreenGain, 0.1, 2.0, 1.0);
-                                        p.BlueGain = Sanitize(p.BlueGain, 0.1, 2.0, 1.0);
-                                        p.Contrast = Sanitize(p.Contrast, 0.5, 1.8, 1.0);
-                                        p.Gamma = Sanitize(p.Gamma, 0.5, 2.5, 1.0);                                    }
-                                }
-
-                                if (settings.CustomPresets == null)
-                                {
-                                    settings.CustomPresets = new List<CustomPreset>();
-                                }
-                                else if (settings.CustomPresets.Count > 100)
-                                {
-                                    // A tampered settings file shouldn't be able to flood the UI and tray menu
-                                    settings.CustomPresets.RemoveRange(100, settings.CustomPresets.Count - 100);
-                                }
-                                else
-                                {
-                                    foreach (var cp in settings.CustomPresets)
-                                    {
-                                        if (string.IsNullOrWhiteSpace(cp.Id)) cp.Id = Guid.NewGuid().ToString("N");
-                                        if (string.IsNullOrWhiteSpace(cp.Name)) cp.Name = "Custom Preset";
-                                        if (cp.Name.Length > 40) cp.Name = cp.Name.Substring(0, 40);
-                                        cp.Brightness = SanitizeInt(cp.Brightness, 0, 100, 80);
-                                        cp.ColorTemperature = SanitizeInt(cp.ColorTemperature, 2000, 10000, 6500);
-                                        cp.RedGain = Sanitize(cp.RedGain, 0.1, 2.0, 1.0);
-                                        cp.GreenGain = Sanitize(cp.GreenGain, 0.1, 2.0, 1.0);
-                                        cp.BlueGain = Sanitize(cp.BlueGain, 0.1, 2.0, 1.0);
-                                        cp.Contrast = Sanitize(cp.Contrast, 0.5, 1.8, 1.0);
-                                        cp.Gamma = Sanitize(cp.Gamma, 0.5, 2.5, 1.0);
-                                    }
-                                }
-
-                                return settings;
-                            }
-                        }
+                        settings.StartWithWindows = IsRunOnStartupEnabled();
+                        return settings;
                     }
                 }
             }

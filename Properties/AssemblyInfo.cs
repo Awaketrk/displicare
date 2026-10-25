@@ -13,6 +13,9 @@ using System.Windows;
 
 [assembly: ComVisible(false)]
 
+// Lets the test project reach internal helpers (ramp math, settings parsing) without making them public
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Displicare.Tests")]
+
 // Resolve P/Invoke DLLs (dxva2, shcore, ...) from System32 only, so a planted DLL next to a portable exe can't be loaded
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
 

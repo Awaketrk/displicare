@@ -92,7 +92,19 @@ if (Test-Path $installerPath) {
     Set-Content -Path $installerPath -Value $issContent -Encoding UTF8
 }
 
-# 3. Compile Release via MSBuild
+# 3. Run the unit tests first, then compile the release
+Write-Host "      Running unit tests..." -ForegroundColor Green
+& $msbuildPath (Join-Path $root "Tests\Displicare.Tests.csproj") /p:Configuration=Release /p:Platform=x64 /verbosity:quiet /nologo
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Test project failed to build"
+    exit $LASTEXITCODE
+}
+& (Join-Path $root "Tests\bin\Release\Displicare.Tests.exe")
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Unit tests failed - not building a release"
+    exit $LASTEXITCODE
+}
+
 Write-Host "[3/6] Compiling Displicare (Release x64)..." -ForegroundColor Green
 & $msbuildPath (Join-Path $root "Displicare.csproj") /p:Configuration=Release /p:Platform=x64 /t:Rebuild /verbosity:minimal
 if ($LASTEXITCODE -ne 0) {

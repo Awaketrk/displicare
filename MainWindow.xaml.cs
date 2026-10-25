@@ -16,7 +16,7 @@ namespace Displicare
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
         private static extern uint GetCurrentProcessId();
 
-        private const int MaxPresetNameLength = 40;
+        private const int MaxPresetNameLength = ConfigManager.MaxPresetNameLength;
 
         private MonitorEngine _engine;
         private TrayManager _tray;

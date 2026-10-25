@@ -1,0 +1,180 @@
+using System;
+
+namespace Displicare.Tests
+{
+    /// <summary>Gamma ramp, software brightness and HDR color filter math.</summary>
+    public static class RampTests
+    {
+        private static int Identity(int i) { return (i * 65535) / 255; }
+
+        private static DisplayInfo Display(bool hardware, int brightness, bool hdr = false)
+        {
+            return new DisplayInfo
+            {
+                DeviceName = @"\\.\DISPLAY1",
+                SupportsDdcCi = hardware,
+                UseHardwareBrightness = hardware,
+                UserBrightness = brightness,
+                IsHdr = hdr
+            };
+        }
+
+        private static ushort[] Build(DisplayInfo d, ushort[] baseline = null)
+        {
+            var output = new ushort[768];
+            MonitorEngine.BuildRamp(d, baseline, output);
+            return output;
+        }
+
+        private static ushort[] ScaledIdentity(double scale)
+        {
+            var r = new ushort[768];
+            for (int i = 0; i < 256; i++)
+            {
+                ushort v = (ushort)Math.Round(Identity(i) * scale);
+                r[i] = v; r[256 + i] = v; r[512 + i] = v;
+            }
+            return r;
+        }
+
+        [Test]
+        public static void NeutralHardwareDisplayGetsIdentityRamp()
+        {
+            var ramp = Build(Display(hardware: true, brightness: 40));
+            for (int i = 0; i < 256; i++)
+            {
+                Assert.Near(Identity(i), ramp[i], 1, "red[" + i + "]");
+                Assert.Near(Identity(i), ramp[512 + i], 1, "blue[" + i + "]");
+            }
+        }
+
+        [Test]
+        public static void SoftwareBrightness100ReachesFullWhite()
+        {
+            var ramp = Build(Display(hardware: false, brightness: 100));
+            Assert.Equal((ushort)65535, ramp[255], "red white");
+            Assert.Equal((ushort)65535, ramp[511], "green white");
+            Assert.Equal((ushort)65535, ramp[767], "blue white");
+        }
+
+        [Test]
+        public static void SoftwareBrightnessScalesWhiteByCurve()
+        {
+            foreach (int b in new[] { 0, 15, 50, 80 })
+            {
+                var ramp = Build(Display(hardware: false, brightness: b));
+                double expected = MonitorEngine.SoftwareBrightnessScale(b) * 65535;
+                Assert.Near(expected, ramp[255], 2, "white at " + b + "%");
+            }
+        }
+
+        [Test]
+        public static void SoftwareBrightnessCurveIsMonotonicAndBounded()
+        {
+            double prev = 0;
+            for (int b = 0; b <= 100; b++)
+            {
+                double s = MonitorEngine.SoftwareBrightnessScale(b);
+                Assert.True(s > prev, "scale must increase at " + b + "%");
+                Assert.True(s > 0.5 && s <= 1.0, "scale out of range at " + b + "%: " + s);
+                prev = s;
+            }
+            Assert.Near(1.0, MonitorEngine.SoftwareBrightnessScale(100), 1e-9, "scale at 100%");
+        }
+
+        [Test]
+        public static void HdrSoftwareModeDoesNotDimTheRamp()
+        {
+            // In HDR the gamma ramp is undefined, so dimming happens in the color filter instead
+            var ramp = Build(Display(hardware: false, brightness: 15, hdr: true));
+            Assert.Equal((ushort)65535, ramp[255], "white in HDR software mode");
+            Assert.Near(Identity(128), ramp[128], 1, "mid-grey in HDR software mode");
+        }
+
+        [Test]
+        public static void HdrFilterScaleMatchesTunedCurve()
+        {
+            Assert.Near(0.08, MonitorEngine.HdrFilterScale(0), 1e-6, "0%");
+            Assert.Near(0.218, MonitorEngine.HdrFilterScale(15), 1e-6, "15% (night floor)");
+            Assert.Near(1.0, MonitorEngine.HdrFilterScale(100), 1e-6, "100%");
+            Assert.True(MonitorEngine.HdrFilterScale(-20) >= 0.08 - 1e-6, "below 0% clamps");
+            Assert.True(MonitorEngine.HdrFilterScale(150) <= 1.0 + 1e-6, "above 100% clamps");
+        }
+
+        [Test]
+        public static void RampsStayValidForExtremeSettings()
+        {
+            // Windows rejects ramps that aren't monotonic or stray more than 32760 from identity
+            foreach (int kelvin in new[] { 2500, 3400, 6500, 10000 })
+            foreach (double contrast in new[] { 0.5, 1.0, 1.8 })
+            foreach (double gamma in new[] { 0.5, 1.0, 2.5 })
+            foreach (int brightness in new[] { 0, 50, 100 })
+            foreach (bool hardware in new[] { true, false })
+            {
+                var d = Display(hardware, brightness);
+                d.ColorTemperature = kelvin; d.Contrast = contrast; d.Gamma = gamma;
+                d.RedGain = 2.0; d.BlueGain = 0.1;
+                var ramp = Build(d);
+                string ctx = string.Format("{0}K c{1} g{2} b{3} hw{4}", kelvin, contrast, gamma, brightness, hardware);
+                for (int ch = 0; ch < 3; ch++)
+                for (int i = 0; i < 256; i++)
+                {
+                    int v = ramp[ch * 256 + i];
+                    Assert.True(Math.Abs(v - Identity(i)) <= 32760, "deviation too large at " + ctx + " [" + ch + "," + i + "]");
+                    if (i > 0) Assert.True(v >= ramp[ch * 256 + i - 1], "not monotonic at " + ctx + " [" + ch + "," + i + "]");
+                }
+            }
+        }
+
+        [Test]
+        public static void BaselineCheckAcceptsIdentity()
+        {
+            Assert.True(MonitorEngine.IsNeutralBaseline(ScaledIdentity(1.0)), "identity ramp is a valid baseline");
+        }
+
+        [Test]
+        public static void BaselineCheckRejectsDimmedLeftover()
+        {
+            // Regression: a 90% ramp left by a previous run was captured as "original", capping 100% at 90%
+            Assert.True(!MonitorEngine.IsNeutralBaseline(ScaledIdentity(0.9)), "90% leftover must be rejected");
+            Assert.True(!MonitorEngine.IsNeutralBaseline(null), "null");
+            Assert.True(!MonitorEngine.IsNeutralBaseline(new ushort[10]), "wrong length");
+        }
+
+        [Test]
+        public static void BaselineCheckRejectsWarmLeftover()
+        {
+            var warm = ScaledIdentity(1.0);
+            for (int i = 0; i < 256; i++) warm[512 + i] = (ushort)(warm[512 + i] * 0.55); // 3400K-ish blue
+            Assert.True(!MonitorEngine.IsNeutralBaseline(warm), "warm tinted leftover must be rejected");
+        }
+
+        [Test]
+        public static void RejectedBaselineFallsBackToIdentity()
+        {
+            var ramp = Build(Display(hardware: true, brightness: 80), ScaledIdentity(0.9));
+            Assert.Equal((ushort)65535, ramp[255], "white with a rejected 90% baseline");
+        }
+
+        [Test]
+        public static void KelvinToRgbShape()
+        {
+            double r, g, b;
+            MonitorEngine.KelvinToRgb(3400, out r, out g, out b);
+            Assert.Near(1.0, r, 1e-9, "3400K red");
+            Assert.True(b < g && g < r, "3400K should be warm (b < g < r)");
+
+            MonitorEngine.KelvinToRgb(8500, out r, out g, out b);
+            Assert.Near(1.0, b, 1e-9, "8500K blue");
+            Assert.True(r < 1.0, "8500K should be cool (r < 1)");
+
+            double prevBlue = -1;
+            for (int k = 2000; k <= 6500; k += 250)
+            {
+                MonitorEngine.KelvinToRgb(k, out r, out g, out b);
+                Assert.True(b >= prevBlue, "blue should rise with temperature at " + k + "K");
+                prevBlue = b;
+            }
+        }
+    }
+}

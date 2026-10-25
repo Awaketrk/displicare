@@ -1,0 +1,35 @@
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <ProjectGuid>{8E2C7B1A-4F3D-4C6E-9A21-5D7B3E9F0C42}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Displicare.Tests</RootNamespace>
+    <AssemblyName>Displicare.Tests</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <OutputPath>bin\Release\</OutputPath>
+    <PlatformTarget>x64</PlatformTarget>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Displicare.csproj">
+      <Project>{4B1F20C3-8B39-44FD-9366-D0DF5D36B599}</Project>
+      <Name>Displicare</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="TestRunner.cs" />
+    <Compile Include="RampTests.cs" />
+    <Compile Include="SolarTests.cs" />
+    <Compile Include="ConfigTests.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
