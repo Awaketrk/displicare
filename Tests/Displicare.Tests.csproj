@@ -30,6 +30,7 @@
     <Compile Include="RampTests.cs" />
     <Compile Include="SolarTests.cs" />
     <Compile Include="ConfigTests.cs" />
+    <Compile Include="HardwareTestTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

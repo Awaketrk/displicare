@@ -22,6 +22,7 @@ namespace Displicare
         [DllImport("Magnification.dll")] private static extern bool MagInitialize();
         [DllImport("Magnification.dll")] private static extern bool MagUninitialize();
         [DllImport("Magnification.dll")] private static extern bool MagSetFullscreenColorEffect(ref MAGCOLOREFFECT effect);
+        [DllImport("Magnification.dll")] private static extern bool MagGetFullscreenColorEffect(ref MAGCOLOREFFECT effect);
 
         private bool _initialized;
         private float _r = 1f, _g = 1f, _b = 1f;
@@ -66,6 +67,27 @@ namespace Displicare
             // Typically another app (e.g. Windows color filters / Magnifier) currently owns the effect
             App.Log("ColorFilterDimmer: MagSetFullscreenColorEffect failed");
             return false;
+        }
+
+        /// <summary>
+        /// Reads the effect Windows is actually applying (the RGB diagonal), for the hardware test.
+        /// Returns false if it can't be read.
+        /// </summary>
+        public bool TryRead(out float r, out float g, out float b)
+        {
+            r = g = b = 1f;
+            if (!_initialized)
+            {
+                _initialized = MagInitialize();
+                if (!_initialized) return false;
+            }
+
+            var effect = new MAGCOLOREFFECT { transform = new float[25] };
+            if (!MagGetFullscreenColorEffect(ref effect)) return false;
+            r = effect.transform[0];
+            g = effect.transform[6];
+            b = effect.transform[12];
+            return true;
         }
 
         public void Clear()

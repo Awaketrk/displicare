@@ -54,6 +54,8 @@
     <Compile Include="SolarEngine.cs" />
     <Compile Include="HdrHelper.cs" />
     <Compile Include="ColorFilterDimmer.cs" />
+    <Compile Include="HardwareTest.cs" />
+    <Compile Include="HardwareTestWindow.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

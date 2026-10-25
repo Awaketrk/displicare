@@ -41,6 +41,7 @@ Each release includes `SHA256SUMS.txt` to verify the downloads.
 - **Left-click** the tray icon to open the control window; it hides again when you click elsewhere (pin it to keep it open).
 - **Right-click** the tray icon for quick brightness, presets, Solar Sync, start with Windows and Exit.
 - The **Displays** tab shows each monitor's capabilities, lets you switch between hardware and software brightness, and has the About card with the version.
+- **Hardware Test…** on the About card checks that your displays accept and keep what Displicare writes (gamma ramp, HDR color filter, DDC/CI backlight) and saves a report next to your settings. If something doesn't work on your monitor, attach that report to an issue. Your screen dims and changes color for a few seconds while it runs; everything is put back afterwards.
 
 ### Brightness modes
 
@@ -60,6 +61,7 @@ Settings and the log live in `%LOCALAPPDATA%\Displicare` (portable builds: next 
 |---|---|
 | `--minimized`, `-m` | Start in the tray |
 | `--portable`, `-p` | Keep settings next to the exe |
+| `--hardware-test` | Open the hardware test and start it right away |
 
 ## Building
 
@@ -113,6 +115,7 @@ Between releases the version in `Properties\AssemblyInfo.cs` ends in `-test` (e.
 | `ConfigManager.cs` | Settings loading/validation and start-with-Windows |
 | `ColorFilterDimmer.cs`, `HdrHelper.cs` | HDR detection and HDR dimming |
 | `TrayManager.cs` | Tray icon and menu |
+| `HardwareTest.cs`, `HardwareTestWindow.cs` | In-app hardware test and its report |
 | `Tests/` | Unit tests |
 | `build-release.ps1`, `installer.iss` | Release packaging |
 

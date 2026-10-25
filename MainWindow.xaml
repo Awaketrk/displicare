@@ -583,7 +583,7 @@
             <DropShadowEffect Color="#000000" BlurRadius="28" ShadowDepth="6" Opacity="0.6"/>
         </Border.Effect>
 
-        <Grid>
+        <Grid x:Name="MainContentRoot">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/> <!-- Titlebar Header -->
                 <RowDefinition Height="Auto"/> <!-- Navigation Tabs -->
@@ -1200,10 +1200,12 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <StackPanel Orientation="Horizontal">
-                                    <Button Content="Copy Version Info" Style="{StaticResource PillButton}" Padding="12,8" Margin="0,0,8,0" Click="BtnCopyVersion_Click"/>
-                                    <Button Content="Open Settings Folder ↗" Style="{StaticResource PillButton}" Padding="12,8" Click="BtnOpenSettingsFolder_Click"/>
-                                </StackPanel>
+                                <WrapPanel Orientation="Horizontal">
+                                    <Button Content="Copy Version Info" Style="{StaticResource PillButton}" Padding="12,8" Margin="0,0,8,8" Click="BtnCopyVersion_Click"/>
+                                    <Button Content="Open Settings Folder ↗" Style="{StaticResource PillButton}" Padding="12,8" Margin="0,0,8,8" Click="BtnOpenSettingsFolder_Click"/>
+                                    <Button Content="Hardware Test…" Style="{StaticResource PillButton}" Padding="12,8" Margin="0,0,8,8" Click="BtnHardwareTest_Click"
+                                            ToolTip="Check that this PC's displays accept and keep what Displicare writes, and save a report"/>
+                                </WrapPanel>
                             </StackPanel>
                         </Border>
                     </StackPanel>

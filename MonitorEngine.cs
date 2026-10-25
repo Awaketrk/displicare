@@ -538,7 +538,7 @@ namespace Displicare
             ThreadPool.QueueUserWorkItem(_ => SetBacklight(disp, 100));
         }
 
-        private bool SetBacklight(DisplayInfo disp, int value)
+        internal bool SetBacklight(DisplayInfo disp, int value)
         {
             lock (_i2cBusLock)
             {
@@ -1235,15 +1235,87 @@ namespace Displicare
         /// The color filter covers every screen, so it follows one HDR display: the first in software mode
         /// (its brightness matters most), otherwise the first HDR display. Cleared when no display is in HDR.
         /// </summary>
-        private void UpdateColorFilter()
+        internal static DisplayInfo FilterSource(IList<DisplayInfo> displays)
         {
             DisplayInfo source = null;
-            foreach (var d in Displays)
+            foreach (var d in displays)
             {
                 if (!d.IsHdr) continue;
-                if (d.UsesSoftwareBrightness) { source = d; break; }
+                if (d.UsesSoftwareBrightness) return d;
                 if (source == null) source = d;
             }
+            return source;
+        }
+
+        /// <summary>The filter values Windows should be applying right now: identity when no display is in HDR.</summary>
+        internal void ExpectedColorFilter(out float r, out float g, out float b)
+        {
+            r = g = b = 1f;
+            DisplayInfo source = FilterSource(Displays);
+            if (source != null) ComputeHdrFilter(source, out r, out g, out b);
+        }
+
+        public bool ReadColorFilter(out float r, out float g, out float b)
+        {
+            return _colorFilter.TryRead(out r, out g, out b);
+        }
+
+        /// <summary>The ramp the driver currently holds for this display, or null if it can't be read.</summary>
+        public ushort[] ReadGammaRamp(DisplayInfo disp)
+        {
+            IntPtr hdc = IntPtr.Zero;
+            try
+            {
+                hdc = CreateDC(null, disp.DeviceName, null, IntPtr.Zero);
+                if (hdc == IntPtr.Zero) return null;
+                var ramp = new ushort[768];
+                return GetDeviceGammaRamp(hdc, ramp) ? ramp : null;
+            }
+            catch { return null; }
+            finally
+            {
+                if (hdc != IntPtr.Zero) DeleteDC(hdc);
+            }
+        }
+
+        /// <summary>Reads the DDC/CI backlight value straight from the monitor (blocking I2C call).</summary>
+        public bool ReadBacklight(DisplayInfo disp, out uint value)
+        {
+            value = 0;
+            if (!disp.SupportsDdcCi || disp.HMonitor == IntPtr.Zero) return false;
+            lock (_i2cBusLock)
+            {
+                try
+                {
+                    uint count = 0;
+                    if (!GetNumberOfPhysicalMonitorsFromHMONITOR(disp.HMonitor, out count) || count == 0) return false;
+                    var phys = new PHYSICAL_MONITOR[count];
+                    if (!GetPhysicalMonitorsFromHMONITOR(disp.HMonitor, count, phys)) return false;
+                    try
+                    {
+                        for (uint p = 0; p < count; p++)
+                        {
+                            uint min, cur, max;
+                            if (GetMonitorBrightness(phys[p].hPhysicalMonitor, out min, out cur, out max))
+                            {
+                                value = cur;
+                                return true;
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        DestroyPhysicalMonitors(count, phys);
+                    }
+                }
+                catch { }
+            }
+            return false;
+        }
+
+        private void UpdateColorFilter()
+        {
+            DisplayInfo source = FilterSource(Displays);
 
             if (source == null)
             {

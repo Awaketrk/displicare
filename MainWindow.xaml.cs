@@ -23,6 +23,16 @@ namespace Displicare
         private AppSettings _settings;
         private bool _isUpdatingUi = false;
         private bool _isPinned = false;
+
+        // While the hardware test runs it owns the displays: background reasserts, Solar Sync, tray actions
+        // and display refreshes stand down until it has restored everything
+        private bool _hardwareTestRunning = false;
+        private bool _topologyChangedDuringTest = false;
+        private HardwareTest _hardwareTest;
+        private System.Threading.CancellationTokenSource _hardwareTestCts;
+        private HardwareTestWindow _hardwareTestWindow;
+
+        internal MonitorEngine Engine { get { return _engine; } }
         private System.Windows.Threading.DispatcherTimer _saveDebounceTimer;
         private System.Windows.Threading.DispatcherTimer _solarTimer;
         private bool _manualOverrideActive = false;
@@ -91,6 +101,7 @@ namespace Displicare
             // Wire tray events
             _tray.OnSolarSyncToggled += (enabled) =>
             {
+                if (_hardwareTestRunning) return;
                 Dispatcher.Invoke((Action)(() =>
                 {
                     if (ChkSolarSync != null)
@@ -101,6 +112,7 @@ namespace Displicare
             };
             _tray.OnQuickBrightnessSelected += (val) =>
             {
+                if (_hardwareTestRunning) return;
                 Dispatcher.Invoke(() =>
                 {
                     SliderBrightness.Value = val;
@@ -109,6 +121,7 @@ namespace Displicare
 
             _tray.OnQuickPresetSelected += (presetName) =>
             {
+                if (_hardwareTestRunning) return;
                 Dispatcher.Invoke(() =>
                 {
                     if (presetName != null && presetName.StartsWith("custom:"))
@@ -141,6 +154,7 @@ namespace Displicare
 
             _tray.OnResetRequested += () =>
             {
+                if (_hardwareTestRunning) return;
                 Dispatcher.Invoke(() =>
                 {
                     ResetAll();
@@ -179,6 +193,9 @@ namespace Displicare
             ChkRestoreOnExit.IsChecked = _settings.RestoreOnExit;
             _isPinned = _settings.PinWindow;
             UpdatePinVisual();
+
+            // A hardware test that never got to restore (app killed, logoff mid-test) left its backlight values
+            HardwareTest.RecoverInterruptedRun(_engine);
 
             // Restore saved per-display calibrations if present
             if (_settings.DisplayProfiles != null && _settings.DisplayProfiles.Count > 0)
@@ -362,7 +379,8 @@ namespace Displicare
                 bootSyncTimer.Stop();
                 try
                 {
-                    if (_settings != null && _settings.SolarSyncEnabled)
+                    // RunHardwareTestAsync applies the solar target itself when a test started at launch ends
+                    if (_settings != null && _settings.SolarSyncEnabled && !_hardwareTestRunning)
                     {
                         _engine.RefreshDisplays();
                         PopulateDisplays();
@@ -599,6 +617,14 @@ namespace Displicare
 
         private void HandleDisplayTopologyChange()
         {
+            if (_hardwareTestRunning)
+            {
+                // Refreshing would swap out the display objects under the test; stop it and refresh afterwards
+                _topologyChangedDuringTest = true;
+                if (_hardwareTest != null) _hardwareTest.NoteInterruption("the display configuration changed");
+                if (_hardwareTestCts != null) _hardwareTestCts.Cancel();
+                return;
+            }
             try
             {
                 _engine.RefreshDisplays();
@@ -619,6 +645,7 @@ namespace Displicare
 
         private void ReassertDisplayState()
         {
+            if (_hardwareTestRunning) return;
             try
             {
                 if (_engine != null)
@@ -1216,6 +1243,7 @@ namespace Displicare
 
         private void ApplyCurrentSettings(bool forceColor = false)
         {
+            if (_hardwareTestRunning) return;
             int brightness = (int)SliderBrightness.Value;
             int kelvin = (int)SliderKelvin.Value;
             double rGain = SliderRed.Value;
@@ -1708,7 +1736,7 @@ namespace Displicare
 
         private void UpdateSolarCircadian(bool forceApply)
         {
-            if (_isUpdatingUi || _settings == null || TxtSolarPhase == null) return;
+            if (_isUpdatingUi || _settings == null || TxtSolarPhase == null || _hardwareTestRunning) return;
 
             double lat = _settings.UserLatitude;
             double lon = _settings.UserLongitude;
@@ -2201,6 +2229,58 @@ namespace Displicare
                 Process.Start(new ProcessStartInfo(ConfigManager.GetSettingsFolder()) { UseShellExecute = true });
             }
             catch { }
+        }
+
+        private void BtnHardwareTest_Click(object sender, RoutedEventArgs e)
+        {
+            OpenHardwareTest(false);
+        }
+
+        internal void OpenHardwareTest(bool startNow)
+        {
+            if (_hardwareTestWindow == null)
+            {
+                _hardwareTestWindow = new HardwareTestWindow(this);
+                _hardwareTestWindow.Closed += (s, ev) => { _hardwareTestWindow = null; };
+                _hardwareTestWindow.Show();
+            }
+            _hardwareTestWindow.Activate();
+            if (startNow) _hardwareTestWindow.StartTest();
+        }
+
+        /// <summary>
+        /// Runs the hardware test with everything else that writes display state paused, then picks up again
+        /// as if nothing happened (Solar Sync target, deferred display refresh).
+        /// </summary>
+        internal async System.Threading.Tasks.Task RunHardwareTestAsync(HardwareTest test, System.Threading.CancellationTokenSource cts)
+        {
+            if (_hardwareTestRunning) return;
+            _hardwareTestRunning = true;
+            _hardwareTest = test;
+            _hardwareTestCts = cts;
+            MainContentRoot.IsEnabled = false;
+            try
+            {
+                await test.RunAsync(cts.Token);
+            }
+            finally
+            {
+                _hardwareTestRunning = false;
+                _hardwareTest = null;
+                _hardwareTestCts = null;
+                MainContentRoot.IsEnabled = true;
+
+                if (_topologyChangedDuringTest)
+                {
+                    _topologyChangedDuringTest = false;
+                    HandleDisplayTopologyChange();
+                }
+                if (_settings != null && _settings.SolarSyncEnabled)
+                {
+                    UpdateSolarCircadian(true);
+                }
+                ReassertDisplayState();
+            }
         }
 
         private void ChkRunAtStartup_Checked(object sender, RoutedEventArgs e)

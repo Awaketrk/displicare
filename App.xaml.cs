@@ -105,10 +105,15 @@ namespace Displicare
             }
 
             bool startMinimized = false;
+            bool hardwareTest = false;
             if (e.Args != null)
             {
                 foreach (var arg in e.Args)
                 {
+                    if (arg.Equals("--hardware-test", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hardwareTest = true;
+                    }
                     if (arg.Equals("--portable", StringComparison.OrdinalIgnoreCase) ||
                         arg.Equals("-p", StringComparison.OrdinalIgnoreCase))
                     {
@@ -136,6 +141,12 @@ namespace Displicare
             else
             {
                 Log("Started minimized in tray");
+            }
+
+            if (hardwareTest)
+            {
+                Log("Starting hardware test from the command line");
+                _mainWindow.OpenHardwareTest(true);
             }
 
             base.OnStartup(e);
