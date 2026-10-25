@@ -173,3 +173,13 @@ This catalog maintains a permanent history of all official Lumina Display releas
   - **Portable Package**: `Displicare-v2.1.0-Portable.zip` (117.5 KB)
     - SHA256: `AD3D2A75D7928332B05BADD340C4EA761EA07C583F08F487351AA65CEAC08C32`
 - **Notes**: Dusk redesign and new logo; bug, security and memory-leak fixes; no global input hooks; read-before-write gamma watchdog; software brightness reaches full white and matches hardware more closely; HDR software dimming via Windows color filter; About card with version info.
+
+### Version 2.1.1 Release
+- **Release Date**: 2026-10-25 04:44:23
+- **Assembly Version**: 2.1.1.0
+- **Packages in dist/v2.1.1/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.1.1-Setup.exe` (2.06 MB)
+    - SHA256: `0ECDD16B5356E4F420A155AE0BC6349FB74110FC50B86ED318B2892B7D18B852`
+  - **Portable Package**: `Displicare-v2.1.1-Portable.zip` (119.2 KB)
+    - SHA256: `FF0E0A6D5D899E9A499AB78D333BF0103B940FCBE6957D330F2FD9140D0A5073`
+- **Notes**: Color temperature and RGB through the color filter in HDR; fixes for settings files with missing fields and for oversized preset lists; installer links point to the GitHub repo; unit tests and GitHub Actions releases.
