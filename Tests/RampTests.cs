@@ -221,6 +221,62 @@ namespace Displicare.Tests
             Assert.Equal((ushort)65535, ramp[255], "white with a rejected 90% baseline");
         }
 
+        private static DisplayInfo CurveDisplay()
+        {
+            // The hardware check's crash case: HDR, software 80%, contrast 1.2, gamma 1.3
+            var d = Display(hardware: false, brightness: 80, hdr: true);
+            d.Contrast = 1.2;
+            d.Gamma = 1.3;
+            return d;
+        }
+
+        [Test]
+        public static void LeftoverCurveIsDiscardedAfterSettingsChange()
+        {
+            // Regression: after a crash with a contrast/gamma curve, a restart with different settings captured
+            // the leftover as the baseline (it looks neutral) and kept it, even through a clean exit
+            var identity = ScaledIdentity(1.0);
+            var leftover = Build(CurveDisplay(), identity);
+            Assert.True(MonitorEngine.IsNeutralBaseline(leftover), "the leftover passes the neutral check, so that alone can't catch it");
+
+            ushort[] savedBaseline, savedApplied;
+            Assert.True(MonitorEngine.TryDecodeRampState(MonitorEngine.EncodeRampState(identity, leftover), out savedBaseline, out savedApplied), "state round trip");
+
+            var resolved = MonitorEngine.ResolveCapturedBaseline(leftover, savedBaseline, savedApplied);
+            for (int i = 0; i < 768; i++) Assert.Equal(identity[i], resolved[i], "baseline[" + i + "]");
+
+            // With neutral settings now, 100% must come out as the identity again, not the old curve
+            var neutral = Build(Display(hardware: false, brightness: 100, hdr: true), resolved);
+            Assert.Equal(Identity(128), neutral[128], "mid gray after restart");
+        }
+
+        [Test]
+        public static void LeftoverResolvesToSavedCalibrationBaseline()
+        {
+            // An ICC calibration curve under our ramp comes back as it was, not as linear
+            var calibration = ScaledIdentity(1.0);
+            for (int i = 0; i < 256; i++) calibration[512 + i] = (ushort)Math.Round(Math.Pow(i / 255.0, 1.08) * 65535);
+            Assert.True(MonitorEngine.IsNeutralBaseline(calibration), "test calibration must be a valid baseline");
+
+            var leftover = Build(CurveDisplay(), calibration);
+            var resolved = MonitorEngine.ResolveCapturedBaseline(leftover, calibration, leftover);
+            for (int i = 0; i < 768; i++) Assert.Equal(calibration[i], resolved[i], "baseline[" + i + "]");
+        }
+
+        [Test]
+        public static void RampThatIsNotOursIsKept()
+        {
+            // Another tool or a new calibration changed the ramp since we wrote it: not ours to discard
+            var identity = ScaledIdentity(1.0);
+            var ours = Build(CurveDisplay(), identity);
+            var resolved = MonitorEngine.ResolveCapturedBaseline(identity, identity, ours);
+            Assert.True(object.ReferenceEquals(identity, resolved), "captured ramp returned unchanged");
+
+            ushort[] b, a;
+            Assert.True(!MonitorEngine.TryDecodeRampState(new byte[100], out b, out a), "truncated state file rejected");
+            Assert.True(!MonitorEngine.TryDecodeRampState(null, out b, out a), "missing state rejected");
+        }
+
         [Test]
         public static void KelvinToRgbShape()
         {

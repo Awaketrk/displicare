@@ -408,6 +408,12 @@ namespace Displicare
                     ushort[] ramp = new ushort[768];
                     if (GetDeviceGammaRamp(hdc, ramp))
                     {
+                        ushort[] savedBaseline, savedApplied;
+                        if (LoadRampState(disp, out savedBaseline, out savedApplied))
+                        {
+                            ramp = ResolveCapturedBaseline(ramp, savedBaseline, savedApplied);
+                        }
+
                         if (IsNeutralBaseline(ramp))
                         {
                             disp.OriginalRamp = (ushort[])ramp.Clone();
@@ -608,6 +614,7 @@ namespace Displicare
 
                     SetDeviceGammaRamp(hdc, _gammaBuffer);
                     disp.LastAppliedRamp = null;
+                    ClearRampState(disp);
                 }
             }
             catch { }
@@ -738,6 +745,110 @@ namespace Displicare
             }
         }
 
+        private static bool RampsMatch(ushort[] a, ushort[] b)
+        {
+            if (a == null || b == null || a.Length != 768 || b.Length != 768) return false;
+            for (int i = 0; i < 768; i++)
+            {
+                if (Math.Abs(a[i] - b[i]) > RampCompareTolerance) return false;
+            }
+            return true;
+        }
+
+        private static ushort[] LinearRamp()
+        {
+            var linear = new ushort[768];
+            for (int i = 0; i < 256; i++)
+            {
+                ushort val = (ushort)((i * 65535) / 255);
+                linear[i] = val;
+                linear[256 + i] = val;
+                linear[512 + i] = val;
+            }
+            return linear;
+        }
+
+        /// <summary>
+        /// If the ramp read at startup is the one we last wrote (the app quit without restoring it, e.g. a crash),
+        /// returns the baseline we had under it (or linear if that's unusable); otherwise the captured ramp.
+        /// Unlike <see cref="DiscardOwnLeftoverBaseline"/> this doesn't depend on the saved settings, which may
+        /// have changed since the leftover was written (slider moved just before the crash, hand edits).
+        /// </summary>
+        internal static ushort[] ResolveCapturedBaseline(ushort[] captured, ushort[] savedBaseline, ushort[] savedApplied)
+        {
+            if (!RampsMatch(captured, savedApplied)) return captured;
+            return IsNeutralBaseline(savedBaseline) ? (ushort[])savedBaseline.Clone() : LinearRamp();
+        }
+
+        /// <summary>Ramp state file contents: baseline then applied ramp, 768 little-endian ushorts each.</summary>
+        internal static byte[] EncodeRampState(ushort[] baseline, ushort[] applied)
+        {
+            var data = new byte[768 * 2 * 2];
+            Buffer.BlockCopy(baseline, 0, data, 0, 768 * 2);
+            Buffer.BlockCopy(applied, 0, data, 768 * 2, 768 * 2);
+            return data;
+        }
+
+        internal static bool TryDecodeRampState(byte[] data, out ushort[] baseline, out ushort[] applied)
+        {
+            baseline = null;
+            applied = null;
+            if (data == null || data.Length != 768 * 2 * 2) return false;
+            baseline = new ushort[768];
+            applied = new ushort[768];
+            Buffer.BlockCopy(data, 0, baseline, 0, 768 * 2);
+            Buffer.BlockCopy(data, 768 * 2, applied, 0, 768 * 2);
+            return true;
+        }
+
+        // One file per display next to settings.json (so portable copies keep their own), e.g. gamma-DISPLAY1.dat
+        private static string RampStatePath(DisplayInfo disp)
+        {
+            var name = new StringBuilder();
+            foreach (char c in disp.DeviceName ?? "")
+            {
+                if (char.IsLetterOrDigit(c)) name.Append(c);
+            }
+            return Path.Combine(ConfigManager.GetSettingsFolder(), "gamma-" + name + ".dat");
+        }
+
+        private static bool LoadRampState(DisplayInfo disp, out ushort[] baseline, out ushort[] applied)
+        {
+            baseline = null;
+            applied = null;
+            try
+            {
+                string path = RampStatePath(disp);
+                return File.Exists(path) && TryDecodeRampState(File.ReadAllBytes(path), out baseline, out applied);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Records the ramp we just wrote, synchronously so it's on disk before any crash that could leave it
+        /// behind. A ramp equal to the baseline needs no record.
+        /// </summary>
+        private static void SaveRampState(DisplayInfo disp, ushort[] baseline, ushort[] applied)
+        {
+            if (baseline == null || RampsMatch(baseline, applied))
+            {
+                ClearRampState(disp);
+                return;
+            }
+            try { File.WriteAllBytes(RampStatePath(disp), EncodeRampState(baseline, applied)); }
+            catch { }
+        }
+
+        private static void ClearRampState(DisplayInfo disp)
+        {
+            try
+            {
+                string path = RampStatePath(disp);
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch { }
+        }
+
         /// <summary>
         /// If the baseline captured at startup is exactly the ramp this app would produce for the display's
         /// saved settings, it's our own leftover from the last run (app quit without restoring), not the
@@ -782,6 +893,12 @@ namespace Displicare
                 {
                     BuildRamp(disp, disp.OriginalRamp, _gammaBuffer);
                     SetDeviceGammaRamp(hdc, _gammaBuffer);
+
+                    // Slider drags reapply the same ramp often; only touch the disk when it changed
+                    if (!RampsMatch(_gammaBuffer, disp.LastAppliedRamp))
+                    {
+                        SaveRampState(disp, disp.OriginalRamp, _gammaBuffer);
+                    }
 
                     if (disp.LastAppliedRamp == null) disp.LastAppliedRamp = new ushort[768];
                     Array.Copy(_gammaBuffer, disp.LastAppliedRamp, 768);
@@ -878,6 +995,7 @@ namespace Displicare
                     }
                     SetDeviceGammaRamp(hdc, _gammaBuffer);
                     disp.LastAppliedRamp = null;
+                    ClearRampState(disp);
                 }
             }
             catch { }
