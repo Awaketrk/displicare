@@ -48,8 +48,10 @@ namespace Displicare.Rooms
         [DataMember(Order = 5)] public int Width;
         [DataMember(Order = 6)] public int Height;
         [DataMember(Order = 7)] public double RefreshHz;
-        /// <summary>-1 = leave as is (or not supported), 0 = HDR off, 1 = HDR on.</summary>
+        /// <summary>-1 = leave as is (or not supported), 0 = HDR off, 1 = HDR on, 2 = on where supported.</summary>
         [DataMember(Order = 8)] public int Hdr;
+        /// <summary>Native resolution from the EDID, used when Width is 0 ("best"); 0 when unknown.</summary>
+        public int NativeWidth, NativeHeight;
     }
 
     [DataContract]

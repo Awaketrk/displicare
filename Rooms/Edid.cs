@@ -81,6 +81,19 @@ namespace Displicare.Rooms
             return unique;
         }
 
+        /// <summary>
+        /// The display's native resolution: the first detailed timing of the base block, which EDID reserves for the
+        /// preferred mode. TVs also advertise 4096x2160 (cinema 4K), which has more pixels but isn't their panel.
+        /// </summary>
+        public static DisplayMode? Preferred(byte[] edid)
+        {
+            if (!IsValid(edid)) return null;
+            var modes = new List<DisplayMode>();
+            AddDetailedTiming(edid, 54, modes);
+            if (modes.Count == 0) return null;
+            return modes[0];
+        }
+
         /// <summary>True when a CTA-861 HDR static metadata block lists the PQ (SMPTE ST 2084) curve, i.e. HDR10.</summary>
         public static bool SupportsHdr(byte[] edid)
         {

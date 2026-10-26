@@ -28,6 +28,7 @@ namespace Displicare
         public event Action OnExitRequested;
         /// <summary>A room picked from the tray's Rooms submenu (its key).</summary>
         public event Action<string> OnRoomSelected;
+        public event Action OnRoomsWindowRequested;
 
         private ToolStripMenuItem _roomsMenu;
         private ToolStripSeparator _roomsSeparator;
@@ -141,6 +142,11 @@ namespace Displicare
                     item.Enabled = r.Item4 && !r.Item3 && !busy;
                     _roomsMenu.DropDownItems.Add(item);
                 }
+                _roomsMenu.DropDownItems.Add(new ToolStripSeparator());
+                _roomsMenu.DropDownItems.Add(new ToolStripMenuItem("⚙️ Room settings…", null, (s, e) =>
+                {
+                    if (OnRoomsWindowRequested != null) OnRoomsWindowRequested();
+                }));
             }
             catch { }
         }

@@ -263,10 +263,11 @@ namespace Displicare.Tests
             room.EdidManufacturer = 0x6D1E;
             room.EdidProduct = 0x82CD;
 
-            var p = RoomManager.BuildProfile(room);
+            var p = RoomManager.BuildProfile(room, new DisplayMode(3840, 2160, 60));
             Assert.Equal(2, p.Displays[0].Hdr, "HDR auto");
             Assert.Equal(0, p.Displays[0].Width, "best mode");
-            Assert.True(p.AudioFollowsDisplay, "TV's own sound");
+            Assert.Equal(3840, p.Displays[0].NativeWidth, "native size passed on");
+            Assert.True(!p.AudioFollowsDisplay && p.AudioId == null, "sound is set by the room manager, not the layout");
             Assert.True(p.Displays[0].Primary, "main screen");
 
             room.Hdr = Room.HdrOff;
@@ -274,9 +275,9 @@ namespace Displicare.Tests
             room.AudioId = "{x}";
             room.AudioName = "Headphones";
             room.Width = 3840; room.Height = 2160; room.RefreshHz = 120;
-            p = RoomManager.BuildProfile(room);
+            p = RoomManager.BuildProfile(room, null);
             Assert.Equal(0, p.Displays[0].Hdr, "HDR off");
-            Assert.True(!p.AudioFollowsDisplay && p.AudioId == "{x}", "chosen output");
+            Assert.Equal(3840, p.Displays[0].Width, "chosen size");
             Assert.Equal(120.0, p.Displays[0].RefreshHz, "refresh");
         }
 
@@ -297,6 +298,57 @@ namespace Displicare.Tests
             Assert.Equal("Ctrl+Alt+1", Hotkey.Normalize("ctrl+alt+1"), "normalize");
             Assert.True(Hotkey.Normalize("Shift+A") == null, "shift only is not a hotkey");
             Assert.Equal("Ctrl+Alt+2", Hotkey.NextFree(new[] { "Ctrl+Alt+0", "Ctrl+Alt+1", null }), "next free");
+        }
+
+        // ---------------------------------------------------------------- fixes from the first DAMEPC test
+
+        [Test]
+        public static void TvsGetTheirNativeResolutionNotCinema4K()
+        {
+            var modes = new List<DisplayMode>
+            {
+                new DisplayMode(4096, 2160, 60), new DisplayMode(4096, 2160, 120),
+                new DisplayMode(3840, 2160, 60), new DisplayMode(3840, 2160, 120), new DisplayMode(1920, 1080, 120)
+            };
+            Assert.Equal("3840x2160 @ 120 Hz", LayoutEngine.PickMode(modes, 0, 0, 0, 3840, 2160).Value.ToString(), "native from EDID");
+            Assert.Equal("3840x2160 @ 120 Hz", LayoutEngine.PickMode(modes, 0, 0, 0).Value.ToString(), "no EDID: 4096 wide skipped");
+            Assert.Equal("4096x2160 @ 60 Hz", LayoutEngine.PickMode(modes, 4096, 2160, 60).Value.ToString(), "still selectable on purpose");
+        }
+
+        [Test]
+        public static void EdidPreferredModeIsTheNativeOne()
+        {
+            var lg = Edid.Preferred(Edids()["GSM82CD 5&342cb30d&0&UID4352"]);
+            Assert.True(lg != null, "LG has a preferred timing");
+            Assert.Equal(3840, lg.Value.Width, "LG native width");
+            Assert.Equal(2160, lg.Value.Height, "LG native height");
+            var aorus = Edid.Preferred(Edids()["GBT3214 5&342cb30d&0&UID4353"]);
+            Assert.Equal(3840, aorus.Value.Width, "monitor native width");
+        }
+
+        [Test]
+        public static void TvSoundFoundDespiteWindowsNumbering()
+        {
+            var outputs = new List<AudioOutput>();
+            outputs.Add(new AudioOutput { Id = "a", Name = "Headphones (ROG CETRA OPEN WIRELESS)" });
+            outputs.Add(new AudioOutput { Id = "b", Name = "1 - LG TV SSCR2 (AMD High Definition Audio Device)" });
+            Assert.Equal(1, AudioOutputs.ForDisplay("LG TV SSCR2", outputs), "\"1 - \" prefix");
+            Assert.Equal("LG TV SSCR2", AudioOutputs.DevicePart("12 - LG TV SSCR2 (NVIDIA High Definition Audio)"), "two digits");
+            Assert.Equal("Speakers - Desk", AudioOutputs.DevicePart("Speakers - Desk (Realtek USB Audio)"), "a dash in a real name stays");
+        }
+
+        [Test]
+        public static void RememberedModesKeepTheBestOnes()
+        {
+            var offered = new List<DisplayMode>();
+            for (int i = 0; i < 80; i++) offered.Add(new DisplayMode(640 + i, 480, 60)); // lots of small modes first, as Windows lists them
+            offered.Add(new DisplayMode(3840, 2160, 120));
+            offered.Add(new DisplayMode(3840, 2160, 60));
+            offered.Add(new DisplayMode(1920, 1080, 120));
+            var known = RoomManager.ModesToRemember(offered);
+            Assert.Equal("3840x2160@120", known[0], "best first");
+            Assert.Equal("3840x2160@60", known[1], "then lower rate");
+            Assert.Equal(3, known.Count, "small modes dropped when big ones exist");
         }
 
         [Test]

@@ -369,32 +369,50 @@ namespace Displicare.Rooms
         }
 
         /// <summary>
-        /// The mode to use: the wanted size at the refresh rate closest to the wanted one; with no wanted size (or one the
-        /// display doesn't offer any more), the most pixels at the highest refresh rate.
+        /// The mode to use. The wanted size if the display offers it, else its native size (from the EDID), else its
+        /// largest size; then the refresh rate closest to the wanted one, or the highest. Without a native size, cinema
+        /// 4K (4096 wide) loses to 3840x2160: TVs list it but it isn't their panel.
         /// </summary>
-        internal static DisplayMode? PickMode(IList<DisplayMode> modes, int width, int height, double hz)
+        internal static DisplayMode? PickMode(IList<DisplayMode> modes, int width, int height, double hz,
+            int nativeWidth = 0, int nativeHeight = 0)
         {
             if (modes == null || modes.Count == 0) return null;
-            if (width > 0 && height > 0)
+            if (!(width > 0 && height > 0 && Offers(modes, width, height)))
             {
-                DisplayMode? best = null;
-                foreach (var m in modes)
+                if (nativeWidth > 0 && nativeHeight > 0 && Offers(modes, nativeWidth, nativeHeight))
                 {
-                    if (m.Width != width || m.Height != height) continue;
-                    if (best == null) { best = m; continue; }
-                    double d = hz > 0 ? Math.Abs(m.Hz - hz) : -m.Hz;
-                    double bd = hz > 0 ? Math.Abs(best.Value.Hz - hz) : -best.Value.Hz;
-                    if (d < bd || (d == bd && m.Hz > best.Value.Hz)) best = m;
+                    width = nativeWidth;
+                    height = nativeHeight;
                 }
-                if (best != null) return best;
+                else
+                {
+                    bool uhd = Offers(modes, 3840, 2160);
+                    width = 0;
+                    height = 0;
+                    foreach (var m in modes)
+                    {
+                        if (uhd && m.Width == 4096) continue;
+                        if ((long)m.Width * m.Height > (long)width * height) { width = m.Width; height = m.Height; }
+                    }
+                }
             }
-            DisplayMode top = modes[0];
+
+            DisplayMode? best = null;
             foreach (var m in modes)
             {
-                long px = (long)m.Width * m.Height, topPx = (long)top.Width * top.Height;
-                if (px > topPx || (px == topPx && m.Hz > top.Hz)) top = m;
+                if (m.Width != width || m.Height != height) continue;
+                if (best == null) { best = m; continue; }
+                double d = hz > 0 ? Math.Abs(m.Hz - hz) : -m.Hz;
+                double bd = hz > 0 ? Math.Abs(best.Value.Hz - hz) : -best.Value.Hz;
+                if (d < bd || (d == bd && m.Hz > best.Value.Hz)) best = m;
             }
-            return top;
+            return best;
+        }
+
+        static bool Offers(IList<DisplayMode> modes, int width, int height)
+        {
+            foreach (var m in modes) if (m.Width == width && m.Height == height) return true;
+            return false;
         }
 
         /// <summary>
@@ -422,7 +440,8 @@ namespace Displicare.Rooms
                 dm.dmSize = (ushort)Marshal.SizeOf(typeof(DEVMODE));
                 if (!DisplayConfigApi.EnumDisplaySettings(gdi, DisplayConfigApi.ENUM_CURRENT_SETTINGS, ref dm)) continue;
 
-                var pick = PickMode(ListModes(gdi), display.Width, display.Height, display.RefreshHz);
+                var pick = PickMode(ListModes(gdi), display.Width, display.Height, display.RefreshHz,
+                    display.NativeWidth, display.NativeHeight);
                 if (pick == null) continue;
                 var mode = pick.Value;
                 if (display.Width > 0 && (mode.Width != display.Width || mode.Height != display.Height))

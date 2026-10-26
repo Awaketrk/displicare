@@ -140,11 +140,72 @@ namespace Displicare.Rooms
             return -1;
         }
 
-        static string DevicePart(string name)
+        /// <summary>
+        /// The endpoint name without its device in brackets and without the "1 - " Windows puts in front when two outputs
+        /// share a name: "1 - LG TV SSCR2 (AMD High Definition Audio Device)" gives "LG TV SSCR2".
+        /// </summary>
+        internal static string DevicePart(string name)
         {
             if (name == null) return "";
             int open = name.LastIndexOf(" (", StringComparison.Ordinal);
-            return (open > 0 && name.EndsWith(")") ? name.Substring(0, open) : name).Trim();
+            string part = (open > 0 && name.EndsWith(")") ? name.Substring(0, open) : name).Trim();
+            int dash = part.IndexOf(" - ", StringComparison.Ordinal);
+            if (dash > 0)
+            {
+                int n;
+                if (int.TryParse(part.Substring(0, dash), out n)) part = part.Substring(dash + 3).Trim();
+            }
+            return part;
+        }
+    }
+
+    /// <summary>
+    /// Listens for sound output changes without polling: a TV's HDMI output appearing a while after the TV comes on,
+    /// and the default output being changed by the user. Callbacks arrive on a Windows thread and are passed to the
+    /// UI thread.
+    /// </summary>
+    [ComVisible(true)]
+    internal sealed class AudioWatcher : IMMNotificationClient, IDisposable
+    {
+        readonly IMMDeviceEnumerator enumerator;
+        readonly Action<string> defaultChanged;
+        readonly Action outputsChanged;
+        readonly System.Windows.Threading.Dispatcher dispatcher;
+        bool registered;
+
+        public AudioWatcher(Action<string> defaultChanged, Action outputsChanged, System.Windows.Threading.Dispatcher dispatcher)
+        {
+            this.defaultChanged = defaultChanged;
+            this.outputsChanged = outputsChanged;
+            this.dispatcher = dispatcher;
+            enumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
+            registered = enumerator.RegisterEndpointNotificationCallback(this) == 0;
+        }
+
+        public void OnDeviceStateChanged(string deviceId, int newState) { Post(outputsChanged); }
+        public void OnDeviceAdded(string deviceId) { Post(outputsChanged); }
+        public void OnDeviceRemoved(string deviceId) { }
+        public void OnPropertyValueChanged(string deviceId, PROPERTYKEY key) { }
+
+        public void OnDefaultDeviceChanged(int dataFlow, int role, string defaultDeviceId)
+        {
+            // One notification per role; the multimedia one is enough.
+            if (dataFlow != AudioApi.eRender || role != AudioApi.eMultimedia) return;
+            dispatcher.BeginInvoke((Action)delegate { defaultChanged(defaultDeviceId); });
+        }
+
+        void Post(Action action)
+        {
+            dispatcher.BeginInvoke(action);
+        }
+
+        public void Dispose()
+        {
+            try { if (registered) enumerator.UnregisterEndpointNotificationCallback(this); }
+            catch (Exception) { }
+            registered = false;
+            try { Marshal.ReleaseComObject(enumerator); }
+            catch (Exception) { }
         }
     }
 }

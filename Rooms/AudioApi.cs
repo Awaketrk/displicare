@@ -18,6 +18,19 @@ namespace Displicare.Rooms
         [PreserveSig] int EnumAudioEndpoints(int dataFlow, int stateMask, out IMMDeviceCollection devices);
         [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
         [PreserveSig] int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string id, out IMMDevice device);
+        [PreserveSig] int RegisterEndpointNotificationCallback(IMMNotificationClient client);
+        [PreserveSig] int UnregisterEndpointNotificationCallback(IMMNotificationClient client);
+    }
+
+    /// <summary>Windows calls this (on its own thread) when outputs appear, disappear or the default changes.</summary>
+    [ComImport, Guid("7991EEC9-7E89-4D85-8390-6C703CEC60C0"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IMMNotificationClient
+    {
+        void OnDeviceStateChanged([MarshalAs(UnmanagedType.LPWStr)] string deviceId, int newState);
+        void OnDeviceAdded([MarshalAs(UnmanagedType.LPWStr)] string deviceId);
+        void OnDeviceRemoved([MarshalAs(UnmanagedType.LPWStr)] string deviceId);
+        void OnDefaultDeviceChanged(int dataFlow, int role, [MarshalAs(UnmanagedType.LPWStr)] string defaultDeviceId);
+        void OnPropertyValueChanged([MarshalAs(UnmanagedType.LPWStr)] string deviceId, PROPERTYKEY key);
     }
 
     [ComImport, Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

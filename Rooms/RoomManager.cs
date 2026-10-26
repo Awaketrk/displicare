@@ -6,7 +6,7 @@ using System.Windows.Threading;
 
 namespace Displicare.Rooms
 {
-    /// <summary>What the Rooms tab shows for one room.</summary>
+    /// <summary>What the Rooms tab and window show for one room.</summary>
     internal sealed class RoomStatus
     {
         public Room Room;
@@ -14,8 +14,12 @@ namespace Displicare.Rooms
         public bool Active;
         /// <summary>e.g. "HDMI · NVIDIA".</summary>
         public string Connection;
-        /// <summary>Modes for the drop-downs: the ones Windows offered while the room was active, plus the EDID's.</summary>
+        /// <summary>Modes for the drop-downs, best first.</summary>
         public List<DisplayMode> Modes;
+        /// <summary>True until the room has been on screen: Modes then come from the EDID and may not all work.</summary>
+        public bool ModesFromEdid;
+        /// <summary>The display's native resolution from its EDID, if known.</summary>
+        public DisplayMode? Native;
         public bool HdrCapable;
     }
 
@@ -23,15 +27,19 @@ namespace Displicare.Rooms
     /// Room switching: finds a room for every connected display, switches to one (only that display on, as the main
     /// screen, with its mode, HDR and sound), asks to keep new layouts, and learns the settings used in each room.
     /// Lives on the UI thread; switches run on their own STA thread so the prompt and the 10 s wait for a waking TV
-    /// never block Displicare. Nothing runs while idle: it reacts to display changes, hotkeys and pipe commands.
+    /// never block Displicare. Nothing runs while idle: it reacts to display changes, sound notifications, hotkeys and
+    /// pipe commands.
     /// </summary>
     internal sealed class RoomManager : IDisposable
     {
         const int HomeHotkeyId = 1;
         const int FirstRoomHotkeyId = 100;
         const int ConfirmSeconds = 15;
-        /// <summary>Right after a switch the TV's sound output and HDR are still settling; don't learn from that.</summary>
+        const int MaxKnownModes = 64;
+        /// <summary>Right after a switch the display is still settling; don't learn its mode and HDR from that.</summary>
         static readonly TimeSpan LearnQuietTime = TimeSpan.FromSeconds(20);
+        /// <summary>A TV's HDMI sound output can show up well after the picture (seen: more than 10 s on an AMD port).</summary>
+        static readonly TimeSpan AudioWaitTime = TimeSpan.FromSeconds(60);
 
         readonly AppSettings settings;
         readonly Action save;
@@ -41,10 +49,15 @@ namespace Displicare.Rooms
         readonly Dictionary<string, byte[]> edidCache = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         HotkeyWindow hotkeys;
         CommandPipe pipe;
+        AudioWatcher audioWatcher;
         List<TargetInfo> lastTargets = new List<TargetInfo>();
         string activeKey;
         bool busy;
         DateTime lastSwitchUtc = DateTime.MinValue;
+        Room pendingAudioRoom;
+        DateTime pendingAudioUntil;
+        /// <summary>Our own default-output changes notify us too; those aren't the user's choice to learn.</summary>
+        DateTime ignoreAudioChangesUntil;
 
         /// <summary>Rooms, connection or active room changed: rebuild the tab and tray menu.</summary>
         public event Action Changed;
@@ -62,12 +75,15 @@ namespace Displicare.Rooms
 
         public bool IsRunning { get { return hotkeys != null; } }
         public bool Busy { get { return busy; } }
+        public AppSettings Settings { get { return settings; } }
 
         public void Start()
         {
             if (hotkeys != null) return;
             hotkeys = new HotkeyWindow(OnHotkey);
             pipe = new CommandPipe(OnCommand);
+            try { audioWatcher = new AudioWatcher(OnDefaultAudioChanged, OnAudioOutputsChanged, dispatcher); }
+            catch (Exception ex) { RoomLog.Write("Sound notifications unavailable: " + ex.Message); }
             RoomLog.Write("Room switching on.");
             Refresh();
         }
@@ -79,6 +95,12 @@ namespace Displicare.Rooms
             hotkeys = null;
             pipe.Dispose();
             pipe = null;
+            if (audioWatcher != null)
+            {
+                audioWatcher.Dispose();
+                audioWatcher = null;
+            }
+            pendingAudioRoom = null;
             RoomLog.Write("Room switching off.");
         }
 
@@ -218,8 +240,11 @@ namespace Displicare.Rooms
                     s.Connection = DisplayConfigApi.OutputName(t.OutputTechnology) + " · " + GpuName(t.Identity.AdapterPath);
                 }
                 byte[] edid = EdidFor(room);
-                s.Modes = MergeModes(room.KnownModes, Edid.Modes(edid));
+                s.Native = Edid.Preferred(edid);
                 s.HdrCapable = Edid.SupportsHdr(edid);
+                // Once the room has been on screen, only offer what Windows actually allowed on this connection.
+                s.ModesFromEdid = room.KnownModes.Count == 0;
+                s.Modes = MergeModes(room.KnownModes, s.ModesFromEdid ? Edid.Modes(edid) : null);
                 list.Add(s);
             }
             return list;
@@ -249,12 +274,36 @@ namespace Displicare.Rooms
                     if (TryParseMode(k, out m) && seen.Add(m.ToString())) all.Add(m);
                 }
             if (fromEdid != null) foreach (var m in fromEdid) if (seen.Add(m.ToString())) all.Add(m);
-            all.Sort(delegate (DisplayMode a, DisplayMode b)
+            SortBestFirst(all);
+            return all;
+        }
+
+        internal static void SortBestFirst(List<DisplayMode> modes)
+        {
+            modes.Sort(delegate (DisplayMode a, DisplayMode b)
             {
                 long pa = (long)a.Width * a.Height, pb = (long)b.Width * b.Height;
                 return pa != pb ? pb.CompareTo(pa) : b.Hz.CompareTo(a.Hz);
             });
-            return all;
+        }
+
+        /// <summary>
+        /// The modes worth remembering: best first, nothing below 1280 wide (unless that's all there is), capped so the
+        /// settings file stays small. Windows lists modes smallest first, so taking the first ones would keep only junk.
+        /// </summary>
+        internal static List<string> ModesToRemember(IList<DisplayMode> offered)
+        {
+            var modes = new List<DisplayMode>(offered);
+            SortBestFirst(modes);
+            var list = new List<string>();
+            bool large = modes.Count > 0 && modes[0].Width >= 1280;
+            foreach (var m in modes)
+            {
+                if (list.Count >= MaxKnownModes) break;
+                if (large && m.Width < 1280) continue;
+                list.Add(FormatMode(m));
+            }
+            return list;
         }
 
         internal static string FormatMode(DisplayMode m)
@@ -288,8 +337,9 @@ namespace Displicare.Rooms
         // ---------------------------------------------------------------- learning
 
         /// <summary>
-        /// Remembers what is in use in the room on screen (mode, HDR, sound) and which modes it offers. Runs after display
-        /// changes and right before switching away, so a setting changed in Windows is kept for next time.
+        /// Remembers the mode and HDR in use in the room on screen, and which modes it offers. Runs after display changes
+        /// and right before switching away, so a setting changed in Windows is kept for next time. Sound is learned from
+        /// the user's own default-output changes instead (<see cref="OnDefaultAudioChanged"/>).
         /// </summary>
         void Learn()
         {
@@ -314,12 +364,9 @@ namespace Displicare.Rooms
                 string hdr = display.Hdr == 1 ? (room.Hdr == Room.HdrOff ? Room.HdrOn : room.Hdr) : Room.HdrOff;
                 if (room.Hdr != hdr) { room.Hdr = hdr; changed = true; }
             }
-            changed |= LearnAudio(room);
-
             if (display.GdiName != null)
             {
-                var known = new List<string>();
-                foreach (var m in LayoutEngine.ListModes(display.GdiName)) if (known.Count < 64) known.Add(FormatMode(m));
+                var known = ModesToRemember(LayoutEngine.ListModes(display.GdiName));
                 if (known.Count > 0 && string.Join(",", known.ToArray()) != string.Join(",", room.KnownModes.ToArray()))
                 {
                     room.KnownModes = known;
@@ -328,34 +375,84 @@ namespace Displicare.Rooms
             }
             if (changed)
             {
-                RoomLog.Write("Learned \"" + room.Name + "\": " + room.Width + "x" + room.Height + " @ " + room.RefreshHz
-                    + " Hz, HDR " + room.Hdr + ", sound " + (room.Audio == Room.AudioDevice ? room.AudioName : room.Audio));
+                RoomLog.Write("Learned \"" + room.Name + "\": " + room.Width + "x" + room.Height + " @ " + room.RefreshHz + " Hz, HDR " + room.Hdr);
                 save();
             }
         }
 
-        bool LearnAudio(Room room)
+        // ---------------------------------------------------------------- sound
+
+        /// <summary>Sets the room's sound now if its output is there, else as soon as it appears (up to a minute).</summary>
+        void BeginRoomAudio(Room room)
         {
-            if (room.Audio == Room.AudioKeep) return false;
+            pendingAudioRoom = null;
+            if (room.Audio == Room.AudioKeep) return;
+            if (TrySetRoomAudio(room)) return;
+            pendingAudioRoom = room;
+            pendingAudioUntil = DateTime.UtcNow + AudioWaitTime;
+            RoomLog.Write("Waiting for the sound output of \"" + room.Name + "\"");
+        }
+
+        bool TrySetRoomAudio(Room room)
+        {
             List<AudioOutput> outputs;
             try { outputs = AudioOutputs.List(); }
-            catch (Exception) { return false; }
-            AudioOutput current = null;
-            foreach (var o in outputs) if (o.IsDefault) current = o;
-            if (current == null) return false;
+            catch (Exception ex) { RoomLog.Write("Couldn't list sound outputs: " + ex.Message); return false; }
+            int index = room.Audio == Room.AudioAuto
+                ? AudioOutputs.ForDisplay(room.DisplayName, outputs)
+                : AudioOutputs.Match(room.AudioId, room.AudioName, outputs);
+            if (index < 0) return false;
+            if (outputs[index].IsDefault) return true;
+            ignoreAudioChangesUntil = DateTime.UtcNow.AddSeconds(5);
+            if (AudioOutputs.SetDefault(outputs[index].Id)) RoomLog.Write("Sound output: " + outputs[index].Name);
+            else RoomLog.Write("Couldn't switch sound to " + outputs[index].Name);
+            return true;
+        }
+
+        void OnAudioOutputsChanged()
+        {
+            if (pendingAudioRoom == null) return;
+            if (DateTime.UtcNow > pendingAudioUntil)
+            {
+                RoomLog.Write("The sound output of \"" + pendingAudioRoom.Name + "\" never appeared; sound stays where it was.");
+                pendingAudioRoom = null;
+                return;
+            }
+            if (TrySetRoomAudio(pendingAudioRoom)) pendingAudioRoom = null;
+        }
+
+        /// <summary>The user picked another output while a room is on screen: that room uses it from now on.</summary>
+        void OnDefaultAudioChanged(string id)
+        {
+            if (busy || DateTime.UtcNow < ignoreAudioChangesUntil || hotkeys == null) return;
+            var room = FindByKey(activeKey);
+            if (room == null || room.Audio == Room.AudioKeep) return;
+            List<AudioOutput> outputs;
+            try { outputs = AudioOutputs.List(); }
+            catch (Exception) { return; }
+            AudioOutput chosen = null;
+            foreach (var o in outputs) if (o.Id == id) chosen = o;
+            if (chosen == null) return;
 
             int own = AudioOutputs.ForDisplay(room.DisplayName, outputs);
-            if (own >= 0 && outputs[own].IsDefault)
+            bool changed;
+            if (own >= 0 && outputs[own].Id == id)
             {
-                if (room.Audio == Room.AudioAuto) return false;
+                changed = room.Audio != Room.AudioAuto;
                 room.Audio = Room.AudioAuto;
-                return true;
             }
-            if (room.Audio == Room.AudioDevice && room.AudioId == current.Id) return false;
-            room.Audio = Room.AudioDevice;
-            room.AudioId = current.Id;
-            room.AudioName = current.Name;
-            return true;
+            else
+            {
+                changed = room.Audio != Room.AudioDevice || room.AudioId != id;
+                room.Audio = Room.AudioDevice;
+                room.AudioId = id;
+                room.AudioName = chosen.Name;
+            }
+            if (pendingAudioRoom == room) pendingAudioRoom = null; // the user chose; stop waiting
+            if (!changed) return;
+            RoomLog.Write("Learned \"" + room.Name + "\" sound: " + (room.Audio == Room.AudioAuto ? "its own (" + chosen.Name + ")" : chosen.Name));
+            save();
+            RaiseChanged();
         }
 
         // ---------------------------------------------------------------- switching
@@ -381,10 +478,12 @@ namespace Displicare.Rooms
             catch (Exception ex) { RoomLog.Write("Couldn't read the current room: " + ex.Message); }
 
             var leaving = FindByKey(activeKey);
-            var profile = BuildProfile(room);
+            var native = Edid.Preferred(EdidFor(room));
+            var profile = BuildProfile(room, native);
             bool ask = !home && (settings.RoomAskToKeep == AppSettings.RoomAskAlways
                 || (settings.RoomAskToKeep == AppSettings.RoomAskNew && !room.Confirmed));
             busy = true;
+            pendingAudioRoom = null;
             RaiseChanged();
 
             var thread = new Thread(delegate ()
@@ -394,11 +493,16 @@ namespace Displicare.Rooms
                 try
                 {
                     result = LayoutEngine.Apply(profile, 10);
+                    // Sound starts while the prompt is up, so you hear the TV before deciding.
+                    if (result.Success) dispatcher.Invoke((Action)delegate { BeginRoomAudio(room); });
                     if (result.Success && ask)
                     {
                         asked = true;
-                        if (!ConfirmForm.Ask(room.Name, ConfirmSeconds))
+                        bool kept = ConfirmForm.Ask(room.Name, ConfirmSeconds);
+                        RoomLog.Write(kept ? "Kept \"" + room.Name + "\"." : "\"" + room.Name + "\" not kept; switching back.");
+                        if (!kept)
                         {
+                            dispatcher.Invoke((Action)delegate { pendingAudioRoom = null; });
                             var back = result.Previous != null ? LayoutEngine.Apply(result.Previous, 0) : null;
                             result.Reverted = true;
                             result.Message = back != null && back.Success
@@ -425,6 +529,8 @@ namespace Displicare.Rooms
         {
             busy = false;
             lastSwitchUtc = DateTime.UtcNow;
+            // Going back restores the old output too; that isn't the user picking one.
+            ignoreAudioChangesUntil = DateTime.UtcNow.AddSeconds(5);
             if (result.Success && !result.Reverted)
             {
                 if (asked && !room.Confirmed)
@@ -448,7 +554,8 @@ namespace Displicare.Rooms
             RaiseChanged();
         }
 
-        internal static Profile BuildProfile(Room room)
+        /// <summary>The one-display layout for a room. Sound is handled separately (<see cref="BeginRoomAudio"/>).</summary>
+        internal static Profile BuildProfile(Room room, DisplayMode? native)
         {
             var id = new DisplayIdentity();
             id.DevicePath = room.DevicePath;
@@ -465,16 +572,15 @@ namespace Displicare.Rooms
             display.Height = room.Height;
             display.RefreshHz = room.RefreshHz;
             display.Hdr = room.Hdr == Room.HdrOn ? 1 : room.Hdr == Room.HdrOff ? 0 : 2;
+            if (native != null)
+            {
+                display.NativeWidth = native.Value.Width;
+                display.NativeHeight = native.Value.Height;
+            }
 
             var profile = new Profile();
             profile.Name = room.Name;
             profile.Displays.Add(display);
-            if (room.Audio == Room.AudioAuto) profile.AudioFollowsDisplay = true;
-            else if (room.Audio == Room.AudioDevice)
-            {
-                profile.AudioId = room.AudioId;
-                profile.AudioName = room.AudioName;
-            }
             return profile;
         }
 
@@ -489,10 +595,13 @@ namespace Displicare.Rooms
             catch (Exception ex) { RoomLog.Write("Couldn't open " + url + ": " + ex.Message); }
         }
 
-        /// <summary>Settings changed in the tab: the next switch asks again, and hotkeys follow.</summary>
-        public void RoomEdited(Room room)
+        /// <summary>
+        /// Settings changed in the tab or window. Only a new resolution or refresh rate can leave a screen black, so only
+        /// that makes the next switch ask again; names, sound, HDR and hotkeys don't.
+        /// </summary>
+        public void RoomEdited(Room room, bool modeChanged)
         {
-            if (room != null) room.Confirmed = false;
+            if (room != null && modeChanged) room.Confirmed = false;
             save();
             RegisterHotkeys();
             RaiseChanged();
