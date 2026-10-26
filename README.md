@@ -121,7 +121,7 @@ Between releases the version in `Properties\AssemblyInfo.cs` ends in `-test` (e.
 
 | Path | What's in it |
 |---|---|
-| `MainWindow.xaml(.cs)` | The UI and the logic tying everything together |
+| `MainWindow.xaml(.cs)` | The UI, startup and exit; the rest of the window's code is split by area into `MainWindow.Controls.cs` (sliders, applying settings), `.DisplayCards.cs` (Displays tab), `.DisplayEvents.cs` (reacting to Windows and display changes), `.Presets.cs`, `.Solar.cs` and `.About.cs` |
 | `MonitorEngine.cs` | Display detection, DDC/CI, gamma ramps, presets |
 | `SolarEngine.cs` | Sun position and Solar Sync targets |
 | `ConfigManager.cs` | Settings loading/validation and start-with-Windows |
