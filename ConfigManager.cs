@@ -175,6 +175,13 @@ namespace Displicare
 
         public const string RoomAskNew = "new", RoomAskAlways = "always", RoomAskNever = "never";
 
+        /// <summary>
+        /// Set once displays switched to software brightness by the 2.3.0-and-earlier DDC/CI startup bug were put back
+        /// to hardware brightness (MainWindow.RestoreHardwarePreference).
+        /// </summary>
+        [DataMember]
+        public bool HardwareBrightnessRestored { get; set; }
+
         /// <summary>Room switching (one display at a time for PCs wired to TVs in other rooms). Off by default.</summary>
         [DataMember]
         public bool RoomsEnabled { get; set; }

@@ -183,6 +183,7 @@ namespace Displicare
         private readonly Dictionary<string, int> _pendingBrightness = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private bool _ddcWorkerActive = false;
         private volatile bool _disposed = false;
+        private volatile int _refreshGeneration;
 
         public MonitorEngine()
         {
@@ -332,15 +333,14 @@ namespace Displicare
                                         }
 
                                         uint minB = 0, curB = 100, maxB = 100;
-                                        if (GetMonitorBrightness(physArray[p].hPhysicalMonitor, out minB, out curB, out maxB))
+                                        bool read;
+                                        lock (_i2cBusLock) read = GetMonitorBrightness(physArray[p].hPhysicalMonitor, out minB, out curB, out maxB);
+                                        if (read)
                                         {
-                                            disp.SupportsDdcCi = true;
-                                            disp.MinBrightness = minB;
-                                            disp.MaxBrightness = maxB;
-                                            disp.CurrentBrightness = curB;
+                                            SetDdcRange(disp, minB, curB, maxB);
                                             if (!hasExisting)
                                             {
-                                                disp.UserBrightness = (int)curB;
+                                                disp.UserBrightness = (int)disp.CurrentBrightness;
                                                 disp.UseHardwareBrightness = true;
                                             }
                                             foundBrightness = true;
@@ -348,11 +348,12 @@ namespace Displicare
                                         }
                                     }
 
-                                    if (!foundBrightness)
-                                    {
-                                        disp.SupportsDdcCi = false;
-                                        disp.UseHardwareBrightness = false;
-                                    }
+                                    // A miss is often temporary (a monitor waking up, or busy right after sign-in), so it
+                                    // leaves the user's hardware/software choice alone; RetryDdc keeps asking.
+                                    if (!foundBrightness) disp.SupportsDdcCi = false;
+                                    App.Log("DDC/CI " + disp.FriendlyName + ": " + (foundBrightness
+                                        ? "backlight " + disp.CurrentBrightness + "% (range " + disp.MinBrightness + "-" + disp.MaxBrightness + ")"
+                                        : "no answer" + (disp.UseHardwareBrightness ? ", will retry" : "")));
                                 }
                                 finally
                                 {
@@ -376,11 +377,105 @@ namespace Displicare
                 devNum++;
             }
 
+            int generation;
             lock (_displaysLock)
             {
                 _displays.Clear();
                 _displays.AddRange(newDisplays);
+                generation = ++_refreshGeneration;
             }
+
+            var waiting = newDisplays.FindAll(x => !x.SupportsDdcCi && x.UseHardwareBrightness && x.HMonitor != IntPtr.Zero);
+            if (waiting.Count > 0) ThreadPool.QueueUserWorkItem(_ => RetryDdc(waiting, generation));
+        }
+
+        /// <summary>Seconds after a refresh to ask again a display set to hardware brightness that didn't answer.</summary>
+        private static readonly int[] DdcRetrySeconds = { 1, 3, 10, 30 };
+
+        /// <summary>
+        /// Raised (on a worker thread) when a display that didn't answer over DDC/CI does now; it can switch from the
+        /// software dimmer back to its own backlight.
+        /// </summary>
+        public event Action<DisplayInfo> DdcRecovered;
+
+        private void RetryDdc(List<DisplayInfo> waiting, int generation)
+        {
+            int elapsed = 0;
+            foreach (int at in DdcRetrySeconds)
+            {
+                Thread.Sleep((at - elapsed) * 1000);
+                elapsed = at;
+                // A newer refresh replaced these display objects and does its own retrying
+                if (_disposed || generation != _refreshGeneration) return;
+
+                for (int i = waiting.Count - 1; i >= 0; i--)
+                {
+                    var disp = waiting[i];
+                    uint min, cur, max;
+                    if (!TryReadDdc(disp.HMonitor, out min, out cur, out max)) continue;
+                    SetDdcRange(disp, min, cur, max);
+                    waiting.RemoveAt(i);
+                    App.Log("DDC/CI " + disp.FriendlyName + ": answered after " + at + " s, backlight " + disp.CurrentBrightness + "%");
+                    var handler = DdcRecovered;
+                    if (handler != null) handler(disp);
+                }
+                if (waiting.Count == 0) return;
+            }
+            foreach (var disp in waiting) App.Log("DDC/CI " + disp.FriendlyName + ": still no answer, using software brightness");
+        }
+
+        private bool TryReadDdc(IntPtr hMonitor, out uint min, out uint cur, out uint max)
+        {
+            min = 0; cur = 0; max = 100;
+            lock (_i2cBusLock)
+            {
+                try
+                {
+                    uint count;
+                    if (!GetNumberOfPhysicalMonitorsFromHMONITOR(hMonitor, out count) || count == 0) return false;
+                    var phys = new PHYSICAL_MONITOR[count];
+                    if (!GetPhysicalMonitorsFromHMONITOR(hMonitor, count, phys)) return false;
+                    try
+                    {
+                        for (uint p = 0; p < count; p++)
+                            if (GetMonitorBrightness(phys[p].hPhysicalMonitor, out min, out cur, out max)) return true;
+                    }
+                    finally
+                    {
+                        DestroyPhysicalMonitors(count, phys);
+                    }
+                }
+                catch { }
+            }
+            return false;
+        }
+
+        private static void SetDdcRange(DisplayInfo disp, uint min, uint cur, uint max)
+        {
+            disp.SupportsDdcCi = true;
+            disp.MinBrightness = min;
+            disp.MaxBrightness = max;
+            disp.CurrentBrightness = (uint)RawToPercent(cur, min, max);
+        }
+
+        /// <summary>
+        /// The monitor's own backlight value for a 0-100% setting. Most monitors report 0-100, but DDC/CI lets them
+        /// use any range (0-50, 0-255, 10-100...); writing a percentage straight to those dims by the wrong amount.
+        /// </summary>
+        internal static uint PercentToRaw(int percent, uint min, uint max)
+        {
+            percent = Math.Max(0, Math.Min(100, percent));
+            if (max <= min) return (uint)percent;
+            return min + (uint)Math.Round((max - min) * percent / 100.0);
+        }
+
+        /// <summary>The 0-100% setting for a backlight value the monitor reports in its own range.</summary>
+        internal static int RawToPercent(uint raw, uint min, uint max)
+        {
+            if (max <= min) return (int)Math.Min(100u, raw);
+            if (raw <= min) return 0;
+            if (raw >= max) return 100;
+            return (int)Math.Round((raw - min) * 100.0 / (max - min));
         }
 
         internal static bool IsNeutralBaseline(ushort[] ramp)
@@ -552,12 +647,13 @@ namespace Displicare
                         {
                             try
                             {
-                                uint target = (uint)Math.Max(0, Math.Min(100, value));
+                                int percent = Math.Max(0, Math.Min(100, value));
+                                uint raw = PercentToRaw(percent, disp.MinBrightness, disp.MaxBrightness);
                                 for (uint p = 0; p < count; p++)
                                 {
-                                    if (SetMonitorBrightness(phys[p].hPhysicalMonitor, target))
+                                    if (SetMonitorBrightness(phys[p].hPhysicalMonitor, raw))
                                     {
-                                        disp.CurrentBrightness = target;
+                                        disp.CurrentBrightness = (uint)percent;
                                         return true;
                                     }
                                 }
@@ -1278,39 +1374,15 @@ namespace Displicare
             }
         }
 
-        /// <summary>Reads the DDC/CI backlight value straight from the monitor (blocking I2C call).</summary>
+        /// <summary>Reads the DDC/CI backlight as 0-100% straight from the monitor (blocking I2C call).</summary>
         public bool ReadBacklight(DisplayInfo disp, out uint value)
         {
             value = 0;
             if (!disp.SupportsDdcCi || disp.HMonitor == IntPtr.Zero) return false;
-            lock (_i2cBusLock)
-            {
-                try
-                {
-                    uint count = 0;
-                    if (!GetNumberOfPhysicalMonitorsFromHMONITOR(disp.HMonitor, out count) || count == 0) return false;
-                    var phys = new PHYSICAL_MONITOR[count];
-                    if (!GetPhysicalMonitorsFromHMONITOR(disp.HMonitor, count, phys)) return false;
-                    try
-                    {
-                        for (uint p = 0; p < count; p++)
-                        {
-                            uint min, cur, max;
-                            if (GetMonitorBrightness(phys[p].hPhysicalMonitor, out min, out cur, out max))
-                            {
-                                value = cur;
-                                return true;
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        DestroyPhysicalMonitors(count, phys);
-                    }
-                }
-                catch { }
-            }
-            return false;
+            uint min, cur, max;
+            if (!TryReadDdc(disp.HMonitor, out min, out cur, out max)) return false;
+            value = (uint)RawToPercent(cur, min, max);
+            return true;
         }
 
         private void UpdateColorFilter()

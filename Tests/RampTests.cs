@@ -278,6 +278,24 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void BacklightUsesTheMonitorsOwnRange()
+        {
+            Assert.Equal(40u, MonitorEngine.PercentToRaw(40, 0, 100), "0-100 (AORUS): unchanged");
+            Assert.Equal(40, MonitorEngine.RawToPercent(40, 0, 100), "0-100 read back");
+            Assert.Equal(25u, MonitorEngine.PercentToRaw(50, 0, 50), "0-50 monitor: 50% is 25");
+            Assert.Equal(50, MonitorEngine.RawToPercent(25, 0, 50), "0-50 read back");
+            Assert.Equal(255u, MonitorEngine.PercentToRaw(100, 0, 255), "0-255 at full");
+            Assert.Equal(55u, MonitorEngine.PercentToRaw(50, 10, 100), "10-100: 50% is halfway, 55");
+            Assert.Equal(0, MonitorEngine.RawToPercent(5, 10, 100), "below the minimum reads as 0%");
+            Assert.Equal(100, MonitorEngine.RawToPercent(300, 0, 255), "above the maximum reads as 100%");
+            Assert.Equal(70u, MonitorEngine.PercentToRaw(70, 0, 0), "no range reported: treat as 0-100");
+            Assert.Equal(0u, MonitorEngine.PercentToRaw(-5, 0, 100), "clamped low");
+            Assert.Equal(100u, MonitorEngine.PercentToRaw(150, 0, 100), "clamped high");
+            for (int p = 0; p <= 100; p += 5)
+                Assert.Equal(p, MonitorEngine.RawToPercent(MonitorEngine.PercentToRaw(p, 0, 255), 0, 255), "0-255 round trip at " + p + "%");
+        }
+
+        [Test]
         public static void ProcessNameOfFindsRunningProcess()
         {
             uint self = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;

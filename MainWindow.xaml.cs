@@ -77,6 +77,7 @@ namespace Displicare
         {
             _isUpdatingUi = true;
             _engine = new MonitorEngine();
+            _engine.DdcRecovered += d => Dispatcher.BeginInvoke((Action)(() => OnDdcRecovered(d)));
             _settings = ConfigManager.Load();
 
             _saveDebounceTimer = new System.Windows.Threading.DispatcherTimer();
@@ -218,6 +219,8 @@ namespace Displicare
                     }
                 }
             }
+
+            RestoreHardwarePreference(_engine.Displays);
 
             foreach (var d in _engine.Displays)
             {
@@ -643,6 +646,47 @@ namespace Displicare
                 }
                 catch { }
             }
+        }
+
+        /// <summary>
+        /// A display set to hardware brightness answered DDC/CI late (common right after sign-in): hand dimming from
+        /// the software dimmer to its backlight, as if hardware mode had just been turned on.
+        /// </summary>
+        private void OnDdcRecovered(DisplayInfo d)
+        {
+            if (_hardwareTestRunning || !_engine.Displays.Contains(d)) return;
+            RestoreHardwarePreference(new[] { d });
+            if (!d.UseHardwareBrightness) return;
+            try
+            {
+                _engine.QueueHardwareBrightness(d, d.UserBrightness);
+                _engine.ApplyColorAndGamma(d); // rebuilt without software dimming; also updates the HDR color filter
+                PopulateDisplays();
+                BuildMonitorRows();
+                BuildDisplayHardwareCards();
+            }
+            catch (Exception ex)
+            {
+                App.Log("OnDdcRecovered error: " + ex);
+            }
+        }
+
+        /// <summary>
+        /// Up to 2.3.0 a single missed DDC/CI answer at startup switched a display to software brightness and saved
+        /// that. Once, the first time a DDC/CI display answers, undo it; a later choice of software mode is kept.
+        /// </summary>
+        private void RestoreHardwarePreference(IEnumerable<DisplayInfo> displays)
+        {
+            if (_settings.HardwareBrightnessRestored) return;
+            foreach (var d in displays)
+            {
+                if (!d.SupportsDdcCi) continue;
+                _settings.HardwareBrightnessRestored = true;
+                if (d.UseHardwareBrightness) continue;
+                d.UseHardwareBrightness = true;
+                App.Log("DDC/CI " + d.FriendlyName + ": back to hardware brightness (was switched off by a missed DDC/CI answer)");
+            }
+            if (_settings.HardwareBrightnessRestored) ScheduleSave();
         }
 
         private void HandleDisplayTopologyChange()
