@@ -3,6 +3,7 @@ bin/
 obj/
 *.user
 .vs/
+.claude/settings.local.json
 
 # Release packages: large binaries, rebuilt by build-release.ps1 (publish them as GitHub Releases instead).
 # Only the release catalog is tracked.
