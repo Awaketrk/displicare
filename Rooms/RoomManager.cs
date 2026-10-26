@@ -85,7 +85,42 @@ namespace Displicare.Rooms
             try { audioWatcher = new AudioWatcher(OnDefaultAudioChanged, OnAudioOutputsChanged, dispatcher); }
             catch (Exception ex) { RoomLog.Write("Sound notifications unavailable: " + ex.Message); }
             RoomLog.Write("Room switching on.");
+            TidyLearnedModes();
             Refresh();
+        }
+
+        /// <summary>
+        /// Rooms learned before "Native" / "Highest" were kept as defaults (2.2.1 test builds) hold the exact mode; turn it
+        /// back into the defaults from the modes the room offered. Same mode, so it doesn't ask to keep again.
+        /// </summary>
+        void TidyLearnedModes()
+        {
+            bool changed = false;
+            foreach (var room in settings.Rooms)
+            {
+                if (room.Width <= 0 && room.RefreshHz <= 0) continue;
+                var offered = MergeModes(room.KnownModes, null);
+                if (offered.Count == 0) continue;
+                var native = Edid.Preferred(EdidFor(room));
+                int width = room.Width, height = room.Height, hz = room.RefreshHz;
+                if (width <= 0)
+                {
+                    // Already "Native": check the refresh rate against the native size.
+                    var best = LayoutEngine.PickMode(offered, 0, 0, 0,
+                        native != null ? native.Value.Width : 0, native != null ? native.Value.Height : 0);
+                    if (best == null) continue;
+                    width = best.Value.Width;
+                    height = best.Value.Height;
+                }
+                AsDefaults(offered, native, ref width, ref height, ref hz);
+                if (width == room.Width && height == room.Height && hz == room.RefreshHz) continue;
+                room.Width = width;
+                room.Height = height;
+                room.RefreshHz = hz;
+                RoomLog.Write("\"" + room.Name + "\" now uses " + RoomsView.Summary(room));
+                changed = true;
+            }
+            if (changed) save();
         }
 
         public void Stop()
@@ -350,11 +385,13 @@ namespace Displicare.Rooms
             if (display == null) return;
 
             bool changed = false;
-            int hz = (int)Math.Round(display.RefreshHz);
-            if (room.Width != display.Width || room.Height != display.Height || room.RefreshHz != hz)
+            int width = display.Width, height = display.Height, hz = (int)Math.Round(display.RefreshHz);
+            var offered = display.GdiName != null ? LayoutEngine.ListModes(display.GdiName) : null;
+            if (offered != null) AsDefaults(offered, Edid.Preferred(EdidFor(room)), ref width, ref height, ref hz);
+            if (room.Width != width || room.Height != height || room.RefreshHz != hz)
             {
-                room.Width = display.Width;
-                room.Height = display.Height;
+                room.Width = width;
+                room.Height = height;
                 room.RefreshHz = hz;
                 changed = true;
             }
@@ -364,9 +401,9 @@ namespace Displicare.Rooms
                 string hdr = display.Hdr == 1 ? (room.Hdr == Room.HdrOff ? Room.HdrOn : room.Hdr) : Room.HdrOff;
                 if (room.Hdr != hdr) { room.Hdr = hdr; changed = true; }
             }
-            if (display.GdiName != null)
+            if (offered != null)
             {
-                var known = ModesToRemember(LayoutEngine.ListModes(display.GdiName));
+                var known = ModesToRemember(offered);
                 if (known.Count > 0 && string.Join(",", known.ToArray()) != string.Join(",", room.KnownModes.ToArray()))
                 {
                     room.KnownModes = known;
@@ -375,9 +412,24 @@ namespace Displicare.Rooms
             }
             if (changed)
             {
-                RoomLog.Write("Learned \"" + room.Name + "\": " + room.Width + "x" + room.Height + " @ " + room.RefreshHz + " Hz, HDR " + room.Hdr);
+                RoomLog.Write("Learned \"" + room.Name + "\": " + RoomsView.Summary(room));
                 save();
             }
+        }
+
+        /// <summary>
+        /// Turns a learned mode back into "Native" / "Highest" (0) when it is what those would pick anyway, so the
+        /// settings show the defaults and only a mode the user chose is pinned.
+        /// </summary>
+        internal static void AsDefaults(IList<DisplayMode> offered, DisplayMode? native, ref int width, ref int height, ref int hz)
+        {
+            int highest = 0;
+            foreach (var m in offered) if (m.Width == width && m.Height == height && m.Hz > highest) highest = m.Hz;
+            if (highest > 0 && hz >= highest) hz = 0;
+
+            var best = LayoutEngine.PickMode(offered, 0, 0, 0,
+                native != null ? native.Value.Width : 0, native != null ? native.Value.Height : 0);
+            if (best != null && best.Value.Width == width && best.Value.Height == height) { width = 0; height = 0; }
         }
 
         // ---------------------------------------------------------------- sound

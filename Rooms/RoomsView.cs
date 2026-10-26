@@ -158,11 +158,11 @@ namespace Displicare.Rooms
             return tv ? "📺" : "🖥️";
         }
 
-        /// <summary>"3840×2160 @ 120 Hz, HDR auto" or "Native resolution".</summary>
+        /// <summary>"3840×2160 @ 120 Hz, HDR auto" or "Native resolution, highest refresh".</summary>
         public static string Summary(Room room)
         {
             string mode = room.Width > 0 ? room.Width + "×" + room.Height : "Native resolution";
-            mode += room.RefreshHz > 0 ? " @ " + room.RefreshHz + " Hz" : "";
+            mode += room.RefreshHz > 0 ? " @ " + room.RefreshHz + " Hz" : ", highest refresh";
             if (room.Hdr == Room.HdrOn) mode += ", HDR";
             else if (room.Hdr == Room.HdrAuto) mode += ", HDR auto";
             return mode;
@@ -261,7 +261,6 @@ namespace Displicare.Rooms
             Action fillHz = () =>
             {
                 hz.Items.Clear();
-                hz.Items.Add(Item("Highest", 0));
                 var sel = res.SelectedItem as ComboBoxItem;
                 string size = sel != null ? (string)sel.Tag : "";
                 if (size.Length == 0 && s.Native != null) size = s.Native.Value.Width + "x" + s.Native.Value.Height;
@@ -269,6 +268,7 @@ namespace Displicare.Rooms
                 foreach (var m in s.Modes)
                     if ((m.Width + "x" + m.Height) == size && !rates.Contains(m.Hz)) rates.Add(m.Hz);
                 rates.Sort((a, b) => b.CompareTo(a));
+                hz.Items.Add(Item(rates.Count > 0 ? "Highest (" + rates[0] + " Hz)" : "Highest", 0));
                 foreach (int r in rates) hz.Items.Add(Item(r + " Hz", r));
                 if (room.RefreshHz > 0 && !rates.Contains(room.RefreshHz)) hz.Items.Add(Item(room.RefreshHz + " Hz", room.RefreshHz));
                 Select(hz, room.RefreshHz);

@@ -315,6 +315,27 @@ namespace Displicare.Tests
             Assert.Equal("4096x2160 @ 60 Hz", LayoutEngine.PickMode(modes, 4096, 2160, 60).Value.ToString(), "still selectable on purpose");
         }
 
+        static string Learned(int width, int height, int hz)
+        {
+            var modes = new List<DisplayMode>
+            {
+                new DisplayMode(4096, 2160, 120), new DisplayMode(3840, 2160, 60), new DisplayMode(3840, 2160, 119),
+                new DisplayMode(3840, 2160, 120), new DisplayMode(2560, 1440, 120), new DisplayMode(2560, 1440, 60)
+            };
+            RoomManager.AsDefaults(modes, new DisplayMode(3840, 2160, 60), ref width, ref height, ref hz);
+            return width + "x" + height + "@" + hz;
+        }
+
+        [Test]
+        public static void LearnedBestModeIsStoredAsNativeAndHighest()
+        {
+            Assert.Equal("0x0@0", Learned(3840, 2160, 120), "native at highest refresh");
+            Assert.Equal("0x0@60", Learned(3840, 2160, 60), "native at a lower refresh keeps the refresh");
+            Assert.Equal("2560x1440@0", Learned(2560, 1440, 120), "other size at its highest refresh");
+            Assert.Equal("2560x1440@60", Learned(2560, 1440, 60), "other size and refresh both kept");
+            Assert.Equal("4096x2160@0", Learned(4096, 2160, 120), "cinema 4K is never the native size");
+        }
+
         [Test]
         public static void EdidPreferredModeIsTheNativeOne()
         {
