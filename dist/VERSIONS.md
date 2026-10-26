@@ -193,3 +193,13 @@ This catalog maintains a permanent history of all official Lumina Display releas
   - **Portable Package**: `Displicare-v2.2.0-Portable.zip` (132.6 KB)
     - SHA256: `C80A88D54533AE292B3E76FD7E984E22E1BE06268E8B5122BF1293017248361D`
 - **Notes**: In-app hardware test (About card or `--hardware-test`) that checks the gamma ramp, HDR color filter and DDC/CI backlight and saves a report; fix for a contrast/gamma curve left by a crash being kept as the monitor's baseline.
+
+### Version 2.3.0 Release
+- **Release Date**: 2026-10-26 18:13:31
+- **Assembly Version**: 2.3.0.0
+- **Packages in dist/v2.3.0/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.3.0-Setup.exe` (2.10 MB)
+    - SHA256: `4A24EDF6556FA2F2E7A8A677E2A3718E8C5DE0512D5FEBBE1E444190E88DF37C`
+  - **Portable Package**: `Displicare-v2.3.0-Portable.zip` (173.1 KB)
+    - SHA256: `DEAD55B1E7464D532435B3A543A7B310A906ED99BA9F13C16442BF941F696005`
+- **Notes**: Optional room switching (off by default): every connected screen becomes a room that can be made the only display with its native resolution, highest refresh, HDR and its own sound, with a keep-this-layout prompt, hotkeys, a Rooms window and `--room`; hardware test recovery file renamed so it can't be mistaken for a report.
