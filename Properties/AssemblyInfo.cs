@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 
@@ -28,7 +28,7 @@ using System.Windows;
 [assembly: AssemblyFileVersion("2.1.0.0")]
 // Version shown in the app (About card, header, tray). build-release.ps1 sets it to the release version;
 // a "-test" suffix marks builds that didn't come from the release script.
-[assembly: AssemblyInformationalVersion("2.3.1-test")]
+[assembly: AssemblyInformationalVersion("2.3.2-test")]
 
 
 

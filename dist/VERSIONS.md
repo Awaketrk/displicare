@@ -203,3 +203,12 @@ This catalog maintains a permanent history of all official Lumina Display releas
   - **Portable Package**: `Displicare-v2.3.0-Portable.zip` (173.1 KB)
     - SHA256: `DEAD55B1E7464D532435B3A543A7B310A906ED99BA9F13C16442BF941F696005`
 - **Notes**: Optional room switching (off by default): every connected screen becomes a room that can be made the only display with its native resolution, highest refresh, HDR and its own sound, with a keep-this-layout prompt, hotkeys, a Rooms window and `--room`; hardware test recovery file renamed so it can't be mistaken for a report.
+### Version 2.3.1 Release
+- **Release Date**: 2026-10-26 21:51:13
+- **Assembly Version**: 2.3.1.0
+- **Packages in dist/v2.3.1/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.3.1-Setup.exe` (2.10 MB)
+    - SHA256: `66823C2EF696D3A74285D80F8600624A955E7EEDA6AB0DF6CE671ED5AF23876E`
+  - **Portable Package**: `Displicare-v2.3.1-Portable.zip` (175.8 KB)
+    - SHA256: `57428F127227811AE122D2D1EC8D9C0CCB2E44D121DC1713DBC81E6262308801`
+- **Notes**: DDC/CI monitors that answer late no longer fall back to software brightness (background retries, one-time restore of displays switched off by the bug); backlight set in the monitor's own DDC/CI range; room command pipe limited to the current account with timeouts; faster foreground-window checks.
