@@ -23,6 +23,7 @@
 - **Solar Sync**: follows the sun's position at your location, dimming (and optionally warming) the screen toward night.
 - **Presets**: built-in profiles (Night Light, Paper Read, OLED Vivid, Gaming FPS and more), plus your own.
 - **Multi-monitor**: control every display together or each one separately; settings are remembered per monitor.
+- **Room switching** (optional, off by default): for a PC wired to a desk monitor and TVs in other rooms. Pick a screen and it becomes the only display, with its native resolution, highest refresh rate, HDR and its own sound.
 - **Lightweight**: no dependencies, ~0% CPU when idle, no global input hooks. Calibration is only rewritten when Windows or a game resets it.
 
 ## Install
@@ -43,6 +44,16 @@ Each release includes `SHA256SUMS.txt` to verify the downloads.
 - The **Displays** tab shows each monitor's capabilities, lets you switch between hardware and software brightness, and has the About card with the version.
 - **Hardware Test…** on the About card checks that your displays accept and keep what Displicare writes (gamma ramp, HDR color filter, DDC/CI backlight) and saves a report next to your settings. If something doesn't work on your monitor, attach that report to an issue. Your screen dims and changes color for a few seconds while it runs; everything is put back afterwards.
 
+### Room switching
+
+Turn it on in **Displays > General Settings**. Every connected screen becomes a room, and the **Rooms** tab has a card for each one.
+
+- **Switch here** makes that screen the only (primary) display. The first time, Displicare asks "Keep this display layout?" and switches back after 15 seconds without an answer, so a TV that can't show the picture never leaves you stuck. Changing a room's resolution or refresh rate asks again once.
+- Each room uses **Native** resolution and the **Highest** refresh rate unless you pick something else in **⚙ Room settings…**, where you can also set HDR, the sound output, a hotkey and Steam Big Picture.
+- Rooms remember what you use there: change the resolution, HDR or sound output in Windows and the room keeps it.
+- **Hotkeys:** Ctrl+Alt+1, 2, 3… switch to each room; Ctrl+Alt+0 goes back to the home room without asking.
+- `Displicare.exe --room "LG TV"` switches from a Steam or desktop shortcut.
+
 ### Brightness modes
 
 | Mode | Used when | How it dims |
@@ -62,6 +73,7 @@ Settings and the log live in `%LOCALAPPDATA%\Displicare` (portable builds: next 
 | `--minimized`, `-m` | Start in the tray |
 | `--portable`, `-p` | Keep settings next to the exe |
 | `--hardware-test` | Open the hardware test and start it right away |
+| `--room "<name>"` | Switch to that room (room switching must be on) |
 
 ## Building
 
@@ -85,7 +97,7 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe Tests\Displicare.Tes
 .\Tests\bin\Release\Displicare.Tests.exe
 ```
 
-They cover the brightness and gamma math, the sun-position calculations and settings validation.
+They cover the brightness and gamma math, the sun-position calculations, settings validation and the room switching logic (display modes from real EDIDs, layouts, sound output matching).
 
 ### Releasing
 
@@ -116,6 +128,7 @@ Between releases the version in `Properties\AssemblyInfo.cs` ends in `-test` (e.
 | `ColorFilterDimmer.cs`, `HdrHelper.cs` | HDR detection and HDR dimming |
 | `TrayManager.cs` | Tray icon and menu |
 | `HardwareTest.cs`, `HardwareTestWindow.cs` | In-app hardware test and its report |
+| `Rooms/`, `MainWindow.Rooms.cs` | Room switching: display layouts, EDID modes, sound outputs, the Rooms tab and window |
 | `Tests/` | Unit tests |
 | `build-release.ps1`, `installer.iss` | Release packaging |
 

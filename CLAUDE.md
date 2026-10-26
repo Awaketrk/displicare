@@ -39,7 +39,7 @@ The app changes real display state: the monitor backlight (DDC/CI), the GPU gamm
 - The HDR software floor (`HdrMinLuminance = 0.08`) and the SDR floor (`SoftwareMinLuminance = 0.30`) were tuned by eye so software matches hardware brightness on the maintainer's AORUS FO32U2 (QD-OLED, HDR on, SDR content brightness 240 nits). Different monitors may want different values.
 - A DDC/CI display switched to software mode gets its backlight set to 100 so the two dimmers never stack.
 
-## Room switching (branch `rooms`, not merged yet)
+## Room switching
 
 Optional feature, **off by default** (`RoomsEnabled`; toggle in Displays > General Settings). For a PC wired to TVs in other rooms: every connected screen becomes a room; switching makes it the only (primary) display with its resolution, refresh, HDR and sound. With it off, nothing runs: no hotkeys, no pipe, no audio notifications.
 
