@@ -442,6 +442,8 @@ namespace Displicare
                 ReassertDisplayState();
             };
             _watchdogTimer.Start();
+
+            InitializeRooms();
         }
 
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -629,6 +631,7 @@ namespace Displicare
             {
                 _engine.RefreshDisplays();
                 PopulateDisplays();
+                RoomsDisplaysChanged();
 
                 foreach (var d in _engine.Displays)
                 {
@@ -1701,6 +1704,7 @@ namespace Displicare
             PanelColor.Visibility = TabColor.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
             PanelPresets.Visibility = TabPresets.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
             PanelMonitors.Visibility = TabMonitors.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+            if (PanelRooms != null) PanelRooms.Visibility = TabRooms.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void BtnPin_Click(object sender, RoutedEventArgs e)
@@ -2055,6 +2059,8 @@ namespace Displicare
         {
             if (_isExited) return;
             _isExited = true;
+
+            ShutdownRooms();
 
             if (_solarTimer != null)
             {

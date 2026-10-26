@@ -26,6 +26,11 @@ namespace Displicare
         public event Action<bool> OnSolarSyncToggled;
         public event Action OnResetRequested;
         public event Action OnExitRequested;
+        /// <summary>A room picked from the tray's Rooms submenu (its key).</summary>
+        public event Action<string> OnRoomSelected;
+
+        private ToolStripMenuItem _roomsMenu;
+        private ToolStripSeparator _roomsSeparator;
 
         public TrayManager(MainWindow window, MonitorEngine engine)
         {
@@ -107,6 +112,48 @@ namespace Displicare
             catch { }
         }
 
+        /// <summary>
+        /// Fills the Rooms submenu: (name, key, active, connected) per room. Null or empty hides it (room switching off).
+        /// </summary>
+        public void UpdateRoomsMenu(System.Collections.Generic.IList<Tuple<string, string, bool, bool>> rooms, bool busy)
+        {
+            try
+            {
+                if (_roomsMenu == null) return;
+                var oldItems = new ToolStripItem[_roomsMenu.DropDownItems.Count];
+                _roomsMenu.DropDownItems.CopyTo(oldItems, 0);
+                _roomsMenu.DropDownItems.Clear();
+                foreach (var old in oldItems) old.Dispose();
+
+                bool show = rooms != null && rooms.Count > 0;
+                _roomsMenu.Visible = show;
+                _roomsSeparator.Visible = show;
+                if (!show) return;
+
+                foreach (var r in rooms)
+                {
+                    string key = r.Item2;
+                    var item = new ToolStripMenuItem(r.Item1 + (r.Item4 ? "" : "  (not connected)"), null, (s, e) =>
+                    {
+                        if (OnRoomSelected != null) OnRoomSelected(key);
+                    });
+                    item.Checked = r.Item3;
+                    item.Enabled = r.Item4 && !r.Item3 && !busy;
+                    _roomsMenu.DropDownItems.Add(item);
+                }
+            }
+            catch { }
+        }
+
+        public void ShowBalloon(string title, string text, bool warning)
+        {
+            if (_notifyIcon == null) return;
+            _notifyIcon.BalloonTipTitle = title;
+            _notifyIcon.BalloonTipText = string.IsNullOrEmpty(text) ? " " : text;
+            _notifyIcon.BalloonTipIcon = warning ? ToolTipIcon.Warning : ToolTipIcon.Info;
+            _notifyIcon.ShowBalloonTip(5000);
+        }
+
         public void UpdateStartupMenuState(bool enabled)
         {
             if (_startupItem != null) _startupItem.Checked = enabled;
@@ -176,6 +223,14 @@ namespace Displicare
             header.Font = _headerFont;
             header.Enabled = false;
             menu.Items.Add(header);
+
+            // Rooms submenu: only shown while room switching is on (UpdateRoomsMenu)
+            _roomsMenu = new ToolStripMenuItem("🛋️ Rooms");
+            _roomsMenu.Visible = false;
+            menu.Items.Add(_roomsMenu);
+            _roomsSeparator = new ToolStripSeparator();
+            _roomsSeparator.Visible = false;
+            menu.Items.Add(_roomsSeparator);
 
             // Solar Circadian Sync Quick Toggle
             ToolStripMenuItem solarItem = new ToolStripMenuItem("🌅 Solar Circadian Sync", null, (s, e) =>

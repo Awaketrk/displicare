@@ -18,6 +18,9 @@
     <Reference Include="WindowsBase" />
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Displicare.csproj">
@@ -31,6 +34,7 @@
     <Compile Include="SolarTests.cs" />
     <Compile Include="ConfigTests.cs" />
     <Compile Include="HardwareTestTests.cs" />
+    <Compile Include="RoomsTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

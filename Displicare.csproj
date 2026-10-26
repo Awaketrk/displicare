@@ -56,6 +56,24 @@
     <Compile Include="ColorFilterDimmer.cs" />
     <Compile Include="HardwareTest.cs" />
     <Compile Include="HardwareTestWindow.cs" />
+    <Compile Include="MainWindow.Rooms.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Rooms\AudioApi.cs" />
+    <Compile Include="Rooms\AudioOutputs.cs" />
+    <Compile Include="Rooms\CommandPipe.cs" />
+    <Compile Include="Rooms\ConfirmForm.cs" />
+    <Compile Include="Rooms\DisplayConfigApi.cs" />
+    <Compile Include="Rooms\DisplayTopology.cs" />
+    <Compile Include="Rooms\Edid.cs" />
+    <Compile Include="Rooms\Hotkey.cs" />
+    <Compile Include="Rooms\HotkeyWindow.cs" />
+    <Compile Include="Rooms\Layout.cs" />
+    <Compile Include="Rooms\LayoutEngine.cs" />
+    <Compile Include="Rooms\Room.cs" />
+    <Compile Include="Rooms\RoomLog.cs" />
+    <Compile Include="Rooms\RoomManager.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

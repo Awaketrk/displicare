@@ -651,7 +651,32 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
+                            <!-- Rooms tab: zero width until room switching is turned on -->
+                            <ColumnDefinition x:Name="ColTabRooms" Width="0"/>
                         </Grid.ColumnDefinitions>
+
+                        <RadioButton x:Name="TabRooms" Grid.Column="4" GroupName="NavTabs" Checked="Tab_Checked" Visibility="Collapsed"
+                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Cursor="Hand">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="b" CornerRadius="8" Padding="6,6" Background="Transparent">
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                            <TextBlock Text="🛋️" Margin="0,0,5,0" FontSize="12"/>
+                                            <TextBlock Text="Rooms" FontSize="11.5" FontWeight="SemiBold" Foreground="#B3A3AE" x:Name="t"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="b" Property="Background" Value="#2E2130"/>
+                                            <Setter TargetName="t" Property="Foreground" Value="#FBF6F7"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="t" Property="Foreground" Value="#EDE3E7"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                        </RadioButton>
 
                         <RadioButton x:Name="TabBrightness" GroupName="NavTabs" IsChecked="True" Checked="Tab_Checked"
                                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Cursor="Hand">
@@ -1158,6 +1183,11 @@
                     </StackPanel>
                 </ScrollViewer>
 
+                <!-- ===== TAB 5: ROOMS (only while room switching is on; cards built in MainWindow.Rooms.cs) ===== -->
+                <ScrollViewer x:Name="PanelRooms" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="StackRooms"/>
+                </ScrollViewer>
+
                 <!-- ===== TAB 4: DISPLAYS & SETTINGS ===== -->
                 <ScrollViewer x:Name="PanelMonitors" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
                     <StackPanel>
@@ -1171,7 +1201,10 @@
 
                                 <CheckBox x:Name="ChkRunAtStartup" Content="Start Displicare with Windows" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,10" Checked="ChkRunAtStartup_Checked" Unchecked="ChkRunAtStartup_Checked"/>
                                 <CheckBox x:Name="ChkStartMinimized" Content="Start minimized to system tray" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,10" IsChecked="True" Checked="ChkStartMinimized_Checked" Unchecked="ChkStartMinimized_Checked"/>
-                                <CheckBox x:Name="ChkRestoreOnExit" Content="Restore default gamma on app exit" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,12" Checked="ChkRestoreOnExit_Checked" Unchecked="ChkRestoreOnExit_Checked"/>
+                                <CheckBox x:Name="ChkRestoreOnExit" Content="Restore default gamma on app exit" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,10" Checked="ChkRestoreOnExit_Checked" Unchecked="ChkRestoreOnExit_Checked"/>
+                                <CheckBox x:Name="ChkRoomsEnabled" Content="Room switching" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,2" Checked="ChkRoomsEnabled_Checked" Unchecked="ChkRoomsEnabled_Checked"/>
+                                <TextBlock Text="For a PC wired to TVs or monitors in other rooms: one click (or a hotkey) makes that screen the only one, with its own resolution, HDR and sound. Adds a Rooms tab."
+                                           FontSize="10.5" Foreground="#B3A3AE" TextWrapping="Wrap" Margin="46,0,0,12" LineHeight="15"/>
 
                                 <Button Content="Open Windows Display Settings ↗" Style="{StaticResource PillButton}" Padding="12,8" HorizontalAlignment="Left" Click="BtnOpenWindowsDisplay_Click"/>
                             </StackPanel>

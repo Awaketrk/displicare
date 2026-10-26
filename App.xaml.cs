@@ -92,8 +92,17 @@ namespace Displicare
             _singleInstanceMutex = new Mutex(true, mutexName, out isNewInstance);
             _ownsMutex = isNewInstance;
 
+            string roomArg = RoomArgument(e.Args);
+
             if (!isNewInstance)
             {
+                // "--room <name>" (a Steam or desktop shortcut) goes to the running instance; it only listens with rooms on.
+                if (roomArg != null && Rooms.RoomManager.SendRoomCommand(roomArg))
+                {
+                    Log("Handed --room \"" + roomArg + "\" to the running instance.");
+                    Shutdown();
+                    return;
+                }
                 Log("Another instance already running. Sending wakeup signal and exiting.");
                 uint msg = RegisterWindowMessage(WakeupMessageName);
                 if (msg != 0)
@@ -132,6 +141,13 @@ namespace Displicare
             this.MainWindow = _mainWindow;
             Log("MainWindow created");
 
+            if (roomArg != null)
+            {
+                // Switching rooms from a shortcut shouldn't also pop the window up
+                startMinimized = true;
+                _mainWindow.SwitchRoomFromCommandLine(roomArg);
+            }
+
             if (!startMinimized)
             {
                 Log("Showing MainWindow");
@@ -151,6 +167,21 @@ namespace Displicare
 
             base.OnStartup(e);
             Log("OnStartup finished");
+        }
+
+        /// <summary>The value after --room (several words are joined, so the quotes are optional), or null.</summary>
+        internal static string RoomArgument(string[] args)
+        {
+            if (args == null) return null;
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (!args[i].Equals("--room", StringComparison.OrdinalIgnoreCase)) continue;
+                var words = new System.Collections.Generic.List<string>();
+                for (int j = i + 1; j < args.Length && !args[j].StartsWith("-"); j++) words.Add(args[j]);
+                string room = string.Join(" ", words.ToArray()).Trim();
+                return room.Length > 0 ? room : null;
+            }
+            return null;
         }
 
         protected override void OnExit(ExitEventArgs e)

@@ -166,7 +166,32 @@ namespace Displicare
             AutoLocation = true;
             DisplayProfiles = new List<DisplayProfile>();
             CustomPresets = new List<CustomPreset>();
+            RoomsEnabled = false;
+            Rooms = new List<Room>();
+            RoomHomeKey = "";
+            RoomHomeHotkey = "Ctrl+Alt+0";
+            RoomAskToKeep = RoomAskNew;
         }
+
+        public const string RoomAskNew = "new", RoomAskAlways = "always", RoomAskNever = "never";
+
+        /// <summary>Room switching (one display at a time for PCs wired to TVs in other rooms). Off by default.</summary>
+        [DataMember]
+        public bool RoomsEnabled { get; set; }
+
+        [DataMember]
+        public List<Room> Rooms { get; set; }
+
+        /// <summary>Room the home hotkey switches to without asking; empty = the first room.</summary>
+        [DataMember]
+        public string RoomHomeKey { get; set; }
+
+        [DataMember]
+        public string RoomHomeHotkey { get; set; }
+
+        /// <summary>When to ask "Keep this display layout?": new (until a room's switch was kept once), always or never.</summary>
+        [DataMember]
+        public string RoomAskToKeep { get; set; }
 
         [DataMember]
         public bool SolarSyncEnabled { get; set; }
@@ -403,7 +428,43 @@ namespace Displicare
                 cp.Gamma = Sanitize(cp.Gamma, 0.5, 2.5, 1.0);
             }
 
+            SanitizeRooms(settings);
             return settings;
+        }
+
+        internal const int MaxRooms = 32;
+        internal const int MaxRoomNameLength = 40;
+
+        private static void SanitizeRooms(AppSettings settings)
+        {
+            if (settings.RoomAskToKeep != AppSettings.RoomAskNew && settings.RoomAskToKeep != AppSettings.RoomAskAlways
+                && settings.RoomAskToKeep != AppSettings.RoomAskNever)
+                settings.RoomAskToKeep = AppSettings.RoomAskNew;
+            if (settings.RoomHomeKey == null) settings.RoomHomeKey = "";
+            if (settings.RoomHomeHotkey == null) settings.RoomHomeHotkey = "Ctrl+Alt+0";
+            else if (settings.RoomHomeHotkey.Length > 0) settings.RoomHomeHotkey = Rooms.Hotkey.Normalize(settings.RoomHomeHotkey) ?? "";
+
+            if (settings.Rooms == null) settings.Rooms = new List<Room>();
+            settings.Rooms.RemoveAll(r => r == null || string.IsNullOrWhiteSpace(r.Key));
+            if (settings.Rooms.Count > MaxRooms) settings.Rooms.RemoveRange(MaxRooms, settings.Rooms.Count - MaxRooms);
+            foreach (var r in settings.Rooms)
+            {
+                if (string.IsNullOrWhiteSpace(r.Name)) r.Name = string.IsNullOrWhiteSpace(r.DisplayName) ? r.Key : r.DisplayName;
+                if (r.Name.Length > MaxRoomNameLength) r.Name = r.Name.Substring(0, MaxRoomNameLength);
+                if (r.Width < 0 || r.Width > 16384 || r.Height < 0 || r.Height > 16384 || (r.Width == 0) != (r.Height == 0))
+                {
+                    r.Width = 0;
+                    r.Height = 0;
+                }
+                r.RefreshHz = SanitizeInt(r.RefreshHz, 0, 1000, 0);
+                if (r.Hdr != Room.HdrAuto && r.Hdr != Room.HdrOn && r.Hdr != Room.HdrOff) r.Hdr = Room.HdrAuto;
+                if (r.Audio != Room.AudioAuto && r.Audio != Room.AudioKeep && r.Audio != Room.AudioDevice) r.Audio = Room.AudioAuto;
+                if (r.Audio == Room.AudioDevice && string.IsNullOrEmpty(r.AudioId) && string.IsNullOrEmpty(r.AudioName)) r.Audio = Room.AudioAuto;
+                r.Hotkey = string.IsNullOrEmpty(r.Hotkey) ? "" : (Rooms.Hotkey.Normalize(r.Hotkey) ?? "");
+                if (r.KnownModes == null) r.KnownModes = new List<string>();
+                r.KnownModes.RemoveAll(m => m == null);
+                if (r.KnownModes.Count > 64) r.KnownModes.RemoveRange(64, r.KnownModes.Count - 64);
+            }
         }
 
         public static AppSettings Load()
