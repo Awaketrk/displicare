@@ -24,20 +24,26 @@ namespace Displicare.Rooms
                 string defaultId = DefaultId(enumerator);
                 IMMDeviceCollection devices;
                 if (enumerator.EnumAudioEndpoints(AudioApi.eRender, AudioApi.DEVICE_STATE_ACTIVE, out devices) != 0) return list;
-                int count;
-                devices.GetCount(out count);
-                for (int i = 0; i < count; i++)
+                try
                 {
-                    IMMDevice device;
-                    if (devices.Item(i, out device) != 0) continue;
-                    var output = new AudioOutput();
-                    device.GetId(out output.Id);
-                    output.Name = FriendlyName(device) ?? output.Id;
-                    output.IsDefault = output.Id == defaultId;
-                    list.Add(output);
-                    Marshal.ReleaseComObject(device);
+                    int count;
+                    devices.GetCount(out count);
+                    for (int i = 0; i < count; i++)
+                    {
+                        IMMDevice device;
+                        if (devices.Item(i, out device) != 0) continue;
+                        try
+                        {
+                            var output = new AudioOutput();
+                            device.GetId(out output.Id);
+                            output.Name = FriendlyName(device) ?? output.Id;
+                            output.IsDefault = output.Id == defaultId;
+                            list.Add(output);
+                        }
+                        finally { Marshal.ReleaseComObject(device); }
+                    }
                 }
-                Marshal.ReleaseComObject(devices);
+                finally { Marshal.ReleaseComObject(devices); }
             }
             finally { Marshal.ReleaseComObject(enumerator); }
             return list;
@@ -53,10 +59,13 @@ namespace Displicare.Rooms
         {
             IMMDevice device;
             if (enumerator.GetDefaultAudioEndpoint(AudioApi.eRender, AudioApi.eMultimedia, out device) != 0) return null;
-            string id;
-            device.GetId(out id);
-            Marshal.ReleaseComObject(device);
-            return id;
+            try
+            {
+                string id;
+                device.GetId(out id);
+                return id;
+            }
+            finally { Marshal.ReleaseComObject(device); }
         }
 
         static string FriendlyName(IMMDevice device)

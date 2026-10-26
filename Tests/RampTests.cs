@@ -278,6 +278,14 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void ProcessNameOfFindsRunningProcess()
+        {
+            uint self = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+            Assert.Equal("Displicare.Tests", MainWindow.ProcessNameOf(self), "own process");
+            Assert.True(MainWindow.ProcessNameOf(0) == null, "pid 0 (idle) can't be opened");
+        }
+
+        [Test]
         public static void KelvinToRgbShape()
         {
             double r, g, b;

@@ -206,7 +206,9 @@ namespace Displicare
             {
                 if (_lastRun != null && _lastRun.ReportPath != null)
                 {
-                    Process.Start("explorer.exe", "/select,\"" + _lastRun.ReportPath + "\"");
+                    // Full path: a bare "explorer.exe" is looked up in the current directory first
+                    string explorer = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+                    Process.Start(explorer, "/select,\"" + _lastRun.ReportPath + "\"");
                 }
                 else
                 {

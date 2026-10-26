@@ -315,6 +315,21 @@ namespace Displicare.Tests
             Assert.Equal("4096x2160 @ 60 Hz", LayoutEngine.PickMode(modes, 4096, 2160, 60).Value.ToString(), "still selectable on purpose");
         }
 
+        [Test]
+        public static void CommandPipeTakesTheFirstLine()
+        {
+            Func<string, bool, string> line = (text, ended) =>
+            {
+                byte[] data = System.Text.Encoding.UTF8.GetBytes(text);
+                return CommandPipe.LineFrom(data, data.Length, ended);
+            };
+            Assert.Equal("room\tLG TV", line("room\tLG TV\r\nignored", false), "first line, CR dropped");
+            Assert.True(line("room\tLG", false) == null, "no newline yet: keep reading");
+            Assert.Equal("room\tLG", line("room\tLG", true), "client closed: what it sent is the line");
+            Assert.Equal("room\tSalon büyük", line("room\tSalon büyük\n", false), "UTF-8 names");
+            Assert.Equal("", line("\n", false), "empty line");
+        }
+
         static string Learned(int width, int height, int hz)
         {
             var modes = new List<DisplayMode>
