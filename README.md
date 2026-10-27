@@ -9,6 +9,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/Awaketrk/displicare/releases/latest"><img src="https://img.shields.io/github/v/release/Awaketrk/displicare?label=release" alt="Latest release"></a>
+  <a href="https://github.com/Awaketrk/displicare/actions/workflows/build.yml"><img src="https://github.com/Awaketrk/displicare/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+  <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4" alt="Windows 10 and 11">
+</p>
+
+<p align="center">
   <img src="docs/screenshot.png" width="360" alt="Displicare window">
 </p>
 
@@ -18,12 +24,13 @@
 ## Features
 
 - **Hardware brightness** over DDC/CI: changes the real backlight of supported monitors.
-- **Software brightness** for monitors without DDC/CI, and a dedicated **HDR mode**: with Windows HDR on, dimming, color temperature and RGB go through a Windows color filter, so they also work in HDR games and video.
+- **Software brightness** for monitors without DDC/CI, and an **HDR mode**: with Windows HDR on, dimming, color temperature and RGB go through a Windows color filter, so they also work in HDR games and video.
 - **Color calibration**: color temperature (2500–10000 K), RGB gains, contrast and gamma.
-- **Solar Sync**: follows the sun's position at your location, dimming (and optionally warming) the screen toward night.
+- **Solar Sync**: follows the sun at your location, dimming (and optionally warming) the screen toward night.
 - **Presets**: built-in profiles (Night Light, Paper Read, OLED Vivid, Gaming FPS and more), plus your own.
 - **Multi-monitor**: control every display together or each one separately; settings are remembered per monitor.
-- **Room switching** (optional, off by default): for a PC wired to a desk monitor and TVs in other rooms. Pick a screen and it becomes the only display, with its native resolution, highest refresh rate, HDR and its own sound.
+- **Quick brightness**: scroll over the tray icon, or use optional hotkeys, without opening the window.
+- **Room switching** (optional): for a PC wired to a desk monitor and TVs in other rooms, make one screen the only display with its own resolution, refresh rate, HDR and sound.
 - **Lightweight**: no dependencies, ~0% CPU when idle, no global input hooks. Calibration is only rewritten when Windows or a game resets it.
 
 ## Install
@@ -35,39 +42,47 @@ Download the latest release from the [Releases page](https://github.com/Awaketrk
 
 Each release includes `SHA256SUMS.txt` to verify the downloads.
 
-**Requirements:** Windows 10 or 11 (x64) with .NET Framework 4.8, which is built into current Windows versions.
+**Requirements:** Windows 10 or 11 (x64) with .NET Framework 4.8, which current Windows versions include.
 
 ## Usage
 
-- **Left-click** the tray icon to open the control window; it hides again when you click elsewhere (pin it to keep it open).
-- **Right-click** the tray icon for quick brightness, presets, Solar Sync, start with Windows and Exit.
-- **Scroll** over the tray icon to change brightness in steps of 5%; a small note above the taskbar shows the level. Turn on **Brightness hotkeys** in Displays > General Settings for **Ctrl+Alt+Up / Down** (steps of 10%) from anywhere.
-- The **Displays** tab shows each monitor's capabilities, lets you switch between hardware and software brightness, and has the About card with the version.
-- **Hardware Test…** on the About card checks that your displays accept and keep what Displicare writes (gamma ramp, HDR color filter, DDC/CI backlight) and saves a report next to your settings. If something doesn't work on your monitor, attach that report to an issue. Your screen dims and changes color for a few seconds while it runs; everything is put back afterwards.
+| Do this | To |
+|---|---|
+| **Left-click** the tray icon | Open the control window (it hides when you click elsewhere; pin it to keep it open) |
+| **Right-click** the tray icon | Quick brightness, presets, Solar Sync, start with Windows, Exit |
+| **Scroll** over the tray icon | Change brightness in steps of 5%; a small bar above the taskbar shows the level |
+| **Ctrl+Alt+Up / Down** | Change brightness in steps of 10% from anywhere (turn on **Brightness hotkeys** in Displays > General Settings) |
 
-### Room switching
+The **Displays** tab shows each monitor's capabilities, switches it between hardware and software brightness, and holds the About card.
 
-Turn it on in **Displays > General Settings**. Every connected screen becomes a room, and the **Rooms** tab has a card for each one.
-
-- **Switch here** makes that screen the only (primary) display. The first time, Displicare asks "Keep this display layout?" and switches back after 15 seconds without an answer, so a TV that can't show the picture never leaves you stuck. Changing a room's resolution or refresh rate asks again once.
-- Each room uses **Native** resolution and the **Highest** refresh rate unless you pick something else in **⚙ Room settings…**, where you can also set HDR, the sound output, a hotkey, and what opens when you switch there: **Steam Big Picture** or Windows 11's **Xbox mode** (closed again when you switch to a room that doesn't use it, with every window minimized afterwards so Steam's or the Xbox app's window doesn't sit still on screen). While Xbox mode is open it keeps the controller to itself, so View + D-pad can't switch rooms from inside it: leave it from its menu (Xbox button) first, or use a keyboard hotkey.
-- Rooms remember what you use there: change the resolution, HDR or sound output in Windows and the room keeps it.
-- **Hotkeys:** Ctrl+Alt+1, 2, 3… switch to each room; Ctrl+Alt+0 goes back to the home room without asking.
-- `Displicare.exe --room "LG TV"` switches from a Steam or desktop shortcut.
-- **Controller:** hold **View + Menu** for a second to open a room picker on screen; up/down chooses, **A** switches, **B** closes. A and B also answer "Keep this display layout?". **View + a D-pad direction** goes straight to the room on that direction, so you can switch from the couch while the TV is still blank: the home room is on Up, the others on Right, Left and Down (change it per room under **Controller**). It works with Xbox controllers and anything Steam presents as one. Displicare only reads the controller through XInput, as games do; it never hooks anything or sends input to games, so it's safe with anti-cheat. (Xbox mode has no command of its own, so a room set to open it gets Windows' Win + F11 shortcut pressed once, at the switch.)
-- **Streaming:** when Steam Link (or Apollo, Sunshine) streams to a virtual display, your physical screens are switched off so an OLED isn't left showing a still desktop, and they come back as they were when the stream ends, with every window minimized (Steam's included) so nothing sits still on screen. Displicare's brightness and color never touch the virtual display; the device you stream to has its own.
-- After each switch a short note on the new screen shows the room, resolution, refresh rate, HDR and sound.
-- Each of these three can be turned off under **⚙ Room settings… > All rooms**.
+**Something not working on your monitor?** Click **Hardware Test…** on the About card. It checks that your displays accept and keep what Displicare writes (gamma ramp, HDR color filter, DDC/CI backlight) and saves a report next to your settings; attach it to an [issue](https://github.com/Awaketrk/displicare/issues). The screen dims and changes color for a few seconds while it runs, and everything is put back afterwards.
 
 ### Brightness modes
 
 | Mode | Used when | How it dims |
 |---|---|---|
-| Hardware | Monitor supports DDC/CI (and it's enabled for that display) | Sets the monitor's own backlight |
+| Hardware | The monitor supports DDC/CI (and it's on for that display) | Sets the monitor's own backlight |
 | Software | No DDC/CI, or hardware turned off for that display | GPU gamma ramp, down to ~30% light |
 | Software, HDR | Windows HDR is on | Windows color filter, down to 8% light; also dims HDR content |
 
 Turn on DDC/CI in your monitor's on-screen menu to get hardware brightness.
+
+### Room switching
+
+Turn it on in **Displays > General Settings**. Every connected screen becomes a room, with a card on the **Rooms** tab.
+
+- **Switch here** makes that screen the only (primary) display. The first time, Displicare asks "Keep this display layout?" and switches back after 15 seconds without an answer, so a TV that can't show the picture never leaves you stuck.
+- **⚙ Room settings…** sets each room's resolution and refresh rate (**Native** and **Highest** unless you pick others), HDR, sound output, hotkey, and what opens there: **Steam Big Picture** or Windows 11's **Xbox mode**. Leaving such a room closes it again and minimizes every window, so nothing sits still on screen.
+- Rooms remember what you use there: change the resolution, HDR or sound output in Windows and the room keeps it.
+- **Hotkeys:** Ctrl+Alt+1, 2, 3… switch to each room; Ctrl+Alt+0 goes back to the home room without asking. `Displicare.exe --room "LG TV"` does the same from a shortcut.
+- **Controller:** hold **View + Menu** for a second to open a room picker (up/down chooses, **A** switches, **B** closes), or press **View + a D-pad direction** to go straight to a room, even while the TV is still blank: home is on Up, the others on Right, Left and Down. A and B also answer "Keep this display layout?". It works with Xbox controllers and anything Steam presents as one, and only reads the controller through XInput, as games do, so it's safe with anti-cheat.
+- **Streaming:** while Steam Link (or Apollo, Sunshine) streams to a virtual display, your physical screens are switched off so an OLED isn't left showing a still desktop. They come back as they were when the stream ends, with every window minimized.
+- After each switch, a short note on the new screen shows the room, resolution, refresh rate, HDR and sound.
+
+The controller, turning screens off while streaming, and the note after a switch can each be turned off under **⚙ Room settings… > All rooms**.
+
+> [!TIP]
+> While Xbox mode is open it keeps the controller to itself, so View + D-pad can't switch rooms from inside it. Leave it from its menu (Xbox button) first, or use a keyboard hotkey.
 
 ### Settings and command line
 
@@ -79,6 +94,12 @@ Settings and the log live in `%LOCALAPPDATA%\Displicare` (portable builds: next 
 | `--portable`, `-p` | Keep settings next to the exe |
 | `--hardware-test` | Open the hardware test and start it right away |
 | `--room "<name>"` | Switch to that room (room switching must be on) |
+
+## Known limitations
+
+- **Location is estimated from your time zone.** For exact coordinates, close the app, set `UserLatitude` / `UserLongitude` in `settings.json` and set `AutoLocation` to `false`.
+- **Other color tools conflict.** While custom settings are active, Displicare restores its calibration if f.lux, Windows Night Light or a vendor tool changes it.
+- **HDR mode** covers all screens at once and can't run together with Windows' own color filters. Contrast and gamma still use the gamma ramp, which Windows doesn't define for HDR, so they may look different there.
 
 ## Building
 
@@ -92,7 +113,7 @@ The app is written to `bin\Release\Displicare.exe`.
 
 ### Tests
 
-The test project needs no packages: it's a small console runner that exits with an error if any test fails.
+The test project needs no packages: it's a small console runner that exits with an error if any test fails. Building it also builds the app.
 
 ```bash
 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe Tests\Displicare.Tests.csproj /p:Configuration=Release /p:Platform=x64
@@ -109,36 +130,28 @@ They cover the brightness and gamma math, the sun-position calculations, setting
 GitHub Actions builds and tests every push. To publish a release, tag a commit and push the tag:
 
 ```bash
-git tag v2.1.1
+git tag vX.Y.Z
 ```
 
 ```bash
-git push origin v2.1.1
+git push origin vX.Y.Z
 ```
 
-The workflow runs the tests, builds the installer and portable zip with `build-release.ps1`, and publishes them as a GitHub Release. To check the packages without publishing, run the **Build** workflow manually from the Actions tab and enter a version.
+The workflow runs the tests, builds the installer and portable zip with `build-release.ps1`, and publishes them as a GitHub Release. To check the packages without publishing, run the **Build** workflow manually from the Actions tab and enter a version. `build-release.ps1 -Version X.Y.Z` does the same locally, writing to `dist\vX.Y.Z\`.
 
-`build-release.ps1 -Version X.Y.Z` does the same locally, writing to `dist\vX.Y.Z\`.
+Between releases the version in `Properties\AssemblyInfo.cs` ends in `-test` (e.g. `X.Y.Z-test`), so test builds are easy to tell apart in the About card. The release script replaces it with the plain version.
 
-Between releases the version in `Properties\AssemblyInfo.cs` ends in `-test` (e.g. `2.1.1-test`), so test builds are easy to tell apart in the About card. The release script replaces it with the plain version.
-
-## Project layout
+### Project layout
 
 | Path | What's in it |
 |---|---|
-| `MainWindow.xaml(.cs)` | The UI, startup and exit; the rest of the window's code is split by area into `MainWindow.Controls.cs` (sliders, applying settings), `.DisplayCards.cs` (Displays tab), `.DisplayEvents.cs` (reacting to Windows and display changes), `.Presets.cs`, `.Solar.cs` and `.About.cs` |
+| `MainWindow.xaml(.cs)` | The UI, startup and exit. The rest of the window's code is split by area: `.Controls.cs` (sliders, applying settings), `.DisplayCards.cs` (Displays tab), `.DisplayEvents.cs` (reacting to Windows and display changes), `.BrightnessKeys.cs` (tray wheel and hotkeys), `.Presets.cs`, `.Solar.cs`, `.About.cs` and `.Rooms.cs` |
 | `MonitorEngine.cs` | Display detection, DDC/CI, gamma ramps, presets |
 | `SolarEngine.cs` | Sun position and Solar Sync targets |
 | `ConfigManager.cs` | Settings loading/validation and start-with-Windows |
 | `ColorFilterDimmer.cs`, `HdrHelper.cs` | HDR detection and HDR dimming |
-| `TrayManager.cs` | Tray icon and menu |
+| `TrayManager.cs`, `TrayWheel.cs` | Tray icon, menu and mouse wheel |
 | `HardwareTest.cs`, `HardwareTestWindow.cs` | In-app hardware test and its report |
-| `Rooms/`, `MainWindow.Rooms.cs` | Room switching: display layouts, EDID modes, sound outputs, the Rooms tab and window |
+| `Rooms/` | Room switching: display layouts, EDID modes, sound outputs, controller, on-screen notes, the Rooms tab and window |
 | `Tests/` | Unit tests |
 | `build-release.ps1`, `installer.iss` | Release packaging |
-
-## Known limitations
-
-- **Location is estimated from your time zone.** To set exact coordinates, close the app, set `UserLatitude` / `UserLongitude` in `settings.json` and set `AutoLocation` to `false`.
-- **Other color tools conflict.** While custom settings are active, Displicare restores its calibration if f.lux, Windows Night Light or a vendor tool changes it.
-- **HDR mode** covers all screens at once and can't run together with Windows' own color filters. Contrast and gamma still use the gamma ramp, which Windows doesn't define for HDR, so they may look different there.
