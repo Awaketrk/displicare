@@ -212,3 +212,13 @@ This catalog maintains a permanent history of all official Lumina Display releas
   - **Portable Package**: `Displicare-v2.3.1-Portable.zip` (175.8 KB)
     - SHA256: `57428F127227811AE122D2D1EC8D9C0CCB2E44D121DC1713DBC81E6262308801`
 - **Notes**: DDC/CI monitors that answer late no longer fall back to software brightness (background retries, one-time restore of displays switched off by the bug); backlight set in the monitor's own DDC/CI range; room command pipe limited to the current account with timeouts; faster foreground-window checks.
+
+### Version 2.4.0 Release
+- **Release Date**: 2026-10-27 03:13:51
+- **Assembly Version**: 2.4.0.0
+- **Packages in dist/v2.4.0/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.4.0-Setup.exe` (2.11 MB)
+    - SHA256: `7C8CA270A5796C180CEDAEA89F0E3502F41EDC9E303243EB478B7009F6527574`
+  - **Portable Package**: `Displicare-v2.4.0-Portable.zip` (186.0 KB)
+    - SHA256: `FA0D431CC507AEAA71A97ED74E246D207BB94591068793D47D2463A8E655A56E`
+- **Notes**: Controller room switching (View + a D-pad direction goes straight to a room, View + Menu opens a picker, A/B answer the keep prompt; XInput only, safe with anti-cheat); physical screens switched off while a stream uses a virtual display and restored afterwards with all windows minimized; virtual displays recognised by their software adapter and kept out of brightness and color; a note on screen after each switch; taskbar auto-hide kept through layout changes; tray window no longer shrinks after visiting a screen with other scaling.
