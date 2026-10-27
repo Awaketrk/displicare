@@ -64,7 +64,9 @@ namespace Displicare.Rooms
         Profile lastLayout;
         bool wasStreaming;
         Dictionary<string, string> seenScreens;
-        DispatcherTimer minimizeTimer;
+        /// <summary>Auto-hide was on when a stream began and Displicare turned it off; it goes back on after the stream.</summary>
+        bool autoHideAfterStream;
+        bool afterStreamPending;
         List<TargetInfo> lastTargets = new List<TargetInfo>();
         string activeKey;
         bool busy;
@@ -167,6 +169,12 @@ namespace Displicare.Rooms
             pendingAudioRoom = null;
             ApplyController();
             if (streamTimer != null) streamTimer.Stop();
+            if (autoHideAfterStream)
+            {
+                // Closing during a stream: don't leave the user without the auto-hide Displicare took away.
+                autoHideAfterStream = false;
+                Taskbar.AutoHide = true;
+            }
             RoomOverlay.CloseAll();
             RoomLog.Write("Room switching off.");
         }
@@ -974,9 +982,10 @@ namespace Displicare.Rooms
                 if (IsStreamTarget(t)) streaming = true;
                 else if (t.Active && !t.IsVirtual) physical.Add(t.Identity != null ? ModelKey(t.Identity.DevicePath) : null);
             }
-            // Whoever turned the screens off (Displicare, or Windows remembering the last stream), they come back with
-            // whatever was open, Steam's window first; minimize it all so nothing sits still on an OLED.
-            if (wasStreaming && !streaming && settings.RoomStreamScreensOff) ScheduleMinimize();
+            // Windows often does the switch itself (it remembers "only the stream's display" for this set of screens), so
+            // Displicare can't wrap that in its own auto-hide care: it acts on the stream starting and ending instead.
+            if (!wasStreaming && streaming && settings.RoomStreamScreensOff) StreamBegan();
+            if (wasStreaming && !streaming && settings.RoomStreamScreensOff) AfterStream();
             wasStreaming = streaming;
 
             if (beforeStream != null)
@@ -993,7 +1002,7 @@ namespace Displicare.Rooms
                 RunLayout(restore, 10, delegate (ApplyResult r)
                 {
                     if (!r.Success) RaiseNotify("Couldn't turn the screens back on", r.Message, true);
-                    else ScheduleMinimize(); // count from when the screens are really back
+                    else AfterStream(); // count from when the screens are really back
                 });
                 return;
             }
@@ -1030,22 +1039,51 @@ namespace Displicare.Rooms
             timer.Start();
         }
 
-        /// <summary>Minimizes every window a few seconds from now (Steam brings its window up as the stream closes).</summary>
-        void ScheduleMinimize()
+        /// <summary>
+        /// A stream started. When it ends, Windows brings several screens back at once, and with auto-hide on Explorer then
+        /// says "A toolbar is already hidden on this side of your screen" and turns auto-hide off. That return can't be
+        /// wrapped (Windows may do it), so auto-hide goes off now, while the stream's display is the only screen, and comes
+        /// back in <see cref="AfterStream"/>.
+        /// </summary>
+        void StreamBegan()
         {
-            if (minimizeTimer == null)
+            if (autoHideAfterStream || !Taskbar.AutoHide) return;
+            Taskbar.AutoHide = false;
+            autoHideAfterStream = true;
+            RoomLog.Write("Stream started; taskbar auto-hide off until it ends.");
+        }
+
+        /// <summary>
+        /// The stream ended: once the screens are back and Steam has brought its window up, auto-hide goes back on and every
+        /// window is minimized, so nothing sits still on an OLED. Called again while waiting, it doesn't start a second wait.
+        /// </summary>
+        void AfterStream()
+        {
+            if (afterStreamPending) return;
+            afterStreamPending = true;
+            ThreadPool.QueueUserWorkItem(delegate
             {
-                minimizeTimer = new DispatcherTimer(DispatcherPriority.Normal, dispatcher);
-                minimizeTimer.Interval = MinimizeDelay;
-                minimizeTimer.Tick += delegate
+                Thread.Sleep(MinimizeDelay);
+                for (int i = 0; i < 16 && !SteamWindowShown(); i++) Thread.Sleep(500); // Steam's window, if it comes
+                Thread.Sleep(500);
+                dispatcher.BeginInvoke((Action)delegate
                 {
-                    minimizeTimer.Stop();
+                    afterStreamPending = false;
                     if (hotkeys == null || StreamOn()) return; // switched off, or a new stream began
+                    if (busy)
+                    {
+                        AfterStream(); // the screens are still being put back; wait for that
+                        return;
+                    }
+                    if (autoHideAfterStream)
+                    {
+                        autoHideAfterStream = false;
+                        Taskbar.AutoHide = true;
+                        RoomLog.Write("Stream ended; taskbar auto-hide back on.");
+                    }
                     MinimizeAll("Stream ended");
-                };
-            }
-            minimizeTimer.Stop();
-            minimizeTimer.Start();
+                });
+            });
         }
 
         static void MinimizeAll(string why)
