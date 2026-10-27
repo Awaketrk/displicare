@@ -252,3 +252,13 @@ This catalog maintains a permanent history of all official Lumina Display releas
   - **Portable Package**: `Displicare-v2.4.3-Portable.zip` (188.3 KB)
     - SHA256: `B44CA7AB73E928B476FF6CC20E3577EB96E5999FAD492AF7A4D91BACA1BAE0E7`
 - **Notes**: Screens keep their own name and calibration when room switching moves them between graphics card outputs: the active monitor on each output is used, named from its EDID and keyed by model; saved calibrations are matched by model, then name, and re-applied after display changes.
+
+### Version 2.4.4 Release
+- **Release Date**: 2026-10-27 16:28:41
+- **Assembly Version**: 2.4.4.0
+- **Packages in dist/v2.4.4/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.4.4-Setup.exe` (2.11 MB)
+    - SHA256: `E4C1860A7D9A319109DCF41438AC4A77E015DF485E8EBC3ECBFE11DCDA49ED2C`
+  - **Portable Package**: `Displicare-v2.4.4-Portable.zip` (188.5 KB)
+    - SHA256: `F7CBE4417B5F7275DC6A34A72C566718AA990BCA1DB16C9E9DF06358A46F95D9`
+- **Notes**: Taskbar auto-hide is turned off while a stream runs and back on after it, so screens Windows brings back on its own no longer trigger Explorer's "toolbar already hidden" error; after a stream, windows are minimized once the screens and Steam's window are back.
