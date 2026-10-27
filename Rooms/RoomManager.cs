@@ -775,6 +775,8 @@ namespace Displicare.Rooms
             if (close == open) close = Room.LaunchNone;
 
             if (close == Room.LaunchBigPicture) OpenUrl("steam://close/bigpicture");
+            // Only when nothing opens here: a new Big Picture or Xbox mode is meant to be on screen.
+            if (close != Room.LaunchNone && open == Room.LaunchNone) MinimizeAfterLauncher(close);
             if (open == Room.LaunchBigPicture) OpenUrl("steam://open/bigpicture");
             if (open == Room.LaunchXbox || close == Room.LaunchXbox)
             {
@@ -1039,20 +1041,64 @@ namespace Displicare.Rooms
                 {
                     minimizeTimer.Stop();
                     if (hotkeys == null || StreamOn()) return; // switched off, or a new stream began
-                    try
-                    {
-                        var type = Type.GetTypeFromProgID("Shell.Application");
-                        object shell = Activator.CreateInstance(type);
-                        try { type.InvokeMember("MinimizeAll", System.Reflection.BindingFlags.InvokeMethod, null, shell, null); }
-                        finally { System.Runtime.InteropServices.Marshal.ReleaseComObject(shell); }
-                        RoomLog.Write("Stream ended; minimized all windows.");
-                    }
-                    catch (Exception ex) { RoomLog.Write("Couldn't minimize the windows: " + ex.Message); }
+                    MinimizeAll("Stream ended");
                 };
             }
             minimizeTimer.Stop();
             minimizeTimer.Start();
         }
+
+        static void MinimizeAll(string why)
+        {
+            try
+            {
+                var type = Type.GetTypeFromProgID("Shell.Application");
+                object shell = Activator.CreateInstance(type);
+                try { type.InvokeMember("MinimizeAll", System.Reflection.BindingFlags.InvokeMethod, null, shell, null); }
+                finally { System.Runtime.InteropServices.Marshal.ReleaseComObject(shell); }
+                RoomLog.Write(why + "; minimized all windows.");
+            }
+            catch (Exception ex) { RoomLog.Write("Couldn't minimize the windows: " + ex.Message); }
+        }
+
+        /// <summary>
+        /// Closing Big Picture (or Xbox mode) brings the launcher's own desktop window back up, on the screen you just
+        /// switched to: for an OLED, a still window that stays there. Wait for Steam's window to show (Big Picture takes a
+        /// few seconds to close), then minimize everything, as after a stream.
+        /// </summary>
+        void MinimizeAfterLauncher(string closed)
+        {
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                Thread.Sleep(2000);
+                if (closed == Room.LaunchBigPicture)
+                {
+                    for (int i = 0; i < 24 && !SteamWindowShown(); i++) Thread.Sleep(500);
+                    Thread.Sleep(500); // let it finish drawing, or it can come back over the desktop
+                }
+                else Thread.Sleep(1500);
+                dispatcher.BeginInvoke((Action)delegate
+                {
+                    if (hotkeys == null || busy) return; // switched off, or switching again
+                    MinimizeAll(closed == Room.LaunchBigPicture ? "Big Picture closed" : "Xbox mode closed");
+                });
+            });
+        }
+
+        /// <summary>Steam's desktop window ("Steam") is up and Big Picture's is gone.</summary>
+        static bool SteamWindowShown()
+        {
+            IntPtr big = FindWindow(null, "Steam Big Picture Mode");
+            if (big != IntPtr.Zero && IsWindowVisible(big)) return false;
+            IntPtr main = FindWindow(null, "Steam");
+            return main != IntPtr.Zero && IsWindowVisible(main);
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern IntPtr FindWindow(string className, string windowName);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern bool IsWindowVisible(IntPtr hwnd);
 
         bool StreamOn()
         {
