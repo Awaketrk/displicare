@@ -24,6 +24,11 @@ namespace Displicare
         public string DeviceName { get; set; }        // e.g. \\.\DISPLAY1
         public string FriendlyName { get; set; }      // e.g. AORUS FO32U2
         public string DeviceString { get; set; }      // e.g. NVIDIA GeForce RTX 5080
+        /// <summary>
+        /// The monitor model, e.g. GBT3214: which screen this is. DeviceName is only the output slot, which another screen
+        /// takes over when rooms switch (the Beyond TV gets \\.\DISPLAY1 when the AORUS on it goes off).
+        /// </summary>
+        public string MonitorKey { get; set; }
         public bool IsPrimary { get; set; }
         public int ResolutionWidth { get; set; }
         public int ResolutionHeight { get; set; }
@@ -216,12 +221,24 @@ namespace Displicare
             {
                 foreach (var old in _displays)
                 {
-                    if (!string.IsNullOrEmpty(old.DeviceName))
+                    // By monitor first: an output slot can change hands when rooms switch screens
+                    string key = !string.IsNullOrEmpty(old.MonitorKey) ? old.MonitorKey : old.DeviceName;
+                    if (!string.IsNullOrEmpty(key))
                     {
-                        oldMap[old.DeviceName] = old;
+                        oldMap[key] = old;
                     }
                 }
             }
+
+            // The screens' own names from their EDID ("Beyond TV" rather than "Generic PnP Monitor"), by output
+            var edidNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                foreach (var a in Rooms.DisplayTopology.GetActiveDisplays())
+                    if (a.GdiName != null && a.Identity != null && !string.IsNullOrWhiteSpace(a.Identity.FriendlyName))
+                        edidNames[a.GdiName] = a.Identity.FriendlyName.Trim();
+            }
+            catch (Exception ex) { App.Log("Couldn't read the screens' names: " + ex.Message); }
 
             // Step 1: Collect all active monitor handles and their GDI device names
             var hMonMap = new Dictionary<string, IntPtr>(StringComparer.OrdinalIgnoreCase);
@@ -253,24 +270,38 @@ namespace Displicare
                     string devName = d.DeviceName;
                     string friendlyName = "Display " + (devNum + 1);
 
-                    DISPLAY_DEVICE mon = new DISPLAY_DEVICE();
-                    mon.cb = Marshal.SizeOf(mon);
-                    if (EnumDisplayDevices(devName, 0, ref mon, 0))
+                    // An output lists every monitor that was ever on it; the one showing the picture is the active one.
+                    // Taking the first named the Beyond TV "AORUS FO32U2" after a room switch moved it onto the AORUS's output.
+                    string monitorKey = null;
+                    DISPLAY_DEVICE first = new DISPLAY_DEVICE(), active = new DISPLAY_DEVICE();
+                    bool haveFirst = false, haveActive = false;
+                    for (uint m = 0; m < 16; m++)
                     {
-                        if (!string.IsNullOrWhiteSpace(mon.DeviceString))
-                        {
-                            friendlyName = mon.DeviceString.Trim();
-                        }
+                        DISPLAY_DEVICE mon = new DISPLAY_DEVICE();
+                        mon.cb = Marshal.SizeOf(mon);
+                        if (!EnumDisplayDevices(devName, m, ref mon, 0)) break;
+                        if (!haveFirst) { first = mon; haveFirst = true; }
+                        if ((mon.StateFlags & 1) != 0) { active = mon; haveActive = true; break; } // DISPLAY_DEVICE_ACTIVE
                     }
+                    if (haveActive || haveFirst)
+                    {
+                        var mon = haveActive ? active : first;
+                        if (!string.IsNullOrWhiteSpace(mon.DeviceString)) friendlyName = mon.DeviceString.Trim();
+                        monitorKey = MonitorKeyFromId(mon.DeviceID);
+                    }
+                    string edidName;
+                    if (edidNames.TryGetValue(devName, out edidName)) friendlyName = edidName;
 
                     bool isPrimary = (d.StateFlags & 4) != 0;
 
                     DisplayInfo existing = null;
-                    bool hasExisting = oldMap.TryGetValue(devName, out existing) ||
+                    bool hasExisting = (monitorKey != null && oldMap.TryGetValue(monitorKey, out existing)) ||
+                                       (monitorKey == null && oldMap.TryGetValue(devName, out existing)) ||
                                        (!string.IsNullOrEmpty(friendlyName) && TryFindExistingByFriendly(oldMap, friendlyName, out existing));
 
                     var disp = new DisplayInfo();
                     disp.DeviceName = devName;
+                    disp.MonitorKey = monitorKey;
                     disp.FriendlyName = friendlyName;
                     disp.DeviceString = d.DeviceString;
                     disp.IsPrimary = isPrimary;
@@ -397,6 +428,15 @@ namespace Displicare
         /// Virtual display drivers (SudoVDA for Steam Link and Apollo, Parsec, Virtual Display Driver) are software devices
         /// with a ROOT\ device ID, e.g. root\sudomaker\sudovda; graphics cards are PCI\VEN_...
         /// </summary>
+        /// <summary>The monitor model from its device id: MONITOR\TCL9653\{4d36e96e-...}\0013 gives TCL9653.</summary>
+        internal static string MonitorKeyFromId(string deviceId)
+        {
+            if (string.IsNullOrEmpty(deviceId)) return null;
+            string[] parts = deviceId.Split('\\');
+            return parts.Length >= 2 && parts[0].Equals("MONITOR", StringComparison.OrdinalIgnoreCase) && parts[1].Length > 0
+                ? parts[1].ToUpperInvariant() : null;
+        }
+
         internal static bool IsVirtualAdapter(string deviceId)
         {
             return deviceId != null && deviceId.StartsWith(@"ROOT\", StringComparison.OrdinalIgnoreCase);

@@ -198,27 +198,7 @@ namespace Displicare
             // A hardware test that never got to restore (app killed, logoff mid-test) left its backlight values
             HardwareTest.RecoverInterruptedRun(_engine);
 
-            // Restore saved per-display calibrations if present
-            if (_settings.DisplayProfiles != null && _settings.DisplayProfiles.Count > 0)
-            {
-                foreach (var d in _engine.Displays)
-                {
-                    var prof = _settings.DisplayProfiles.Find(p =>
-                        string.Equals(p.DeviceName, d.DeviceName, StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(p.FriendlyName, d.FriendlyName, StringComparison.OrdinalIgnoreCase));
-                    if (prof != null)
-                    {
-                        d.UserBrightness = prof.Brightness;
-                        d.ColorTemperature = prof.ColorTemperature;
-                        d.RedGain = prof.RedGain;
-                        d.GreenGain = prof.GreenGain;
-                        d.BlueGain = prof.BlueGain;
-                        d.Contrast = prof.Contrast;
-                        d.Gamma = prof.Gamma;
-                        d.UseHardwareBrightness = prof.UseHardwareBrightness;
-                    }
-                }
-            }
+            RestoreDisplayProfiles();
 
             RestoreHardwarePreference(_engine.Displays);
 

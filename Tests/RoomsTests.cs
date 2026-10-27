@@ -513,6 +513,30 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void ScreensKeepTheirOwnSettingsWhenOutputsChangeHands()
+        {
+            var aorus = new DisplayProfile { DeviceName = @"\\.\DISPLAY1", FriendlyName = "AORUS FO32U2", Brightness = 35 };
+            var oldTv = new DisplayProfile { DeviceName = @"\\.\DISPLAY5", FriendlyName = "Generic PnP Monitor", Brightness = 60 };
+            var list = new List<DisplayProfile> { aorus, oldTv };
+
+            Assert.True(ConfigManager.FindProfile(list, "TCL9653", "Beyond TV", @"\\.\DISPLAY1") == null, "the TV on the AORUS's output gets none of its settings");
+            Assert.True(ConfigManager.FindProfile(list, "GBT3214", "AORUS FO32U2", @"\\.\DISPLAY1") == aorus, "an old profile is found by name");
+            aorus.MonitorKey = "GBT3214";
+            Assert.True(ConfigManager.FindProfile(list, "GBT3214", "AORUS FO32U2", @"\\.\DISPLAY3") == aorus, "then by model, on any output");
+            Assert.True(ConfigManager.FindProfile(list, "GBT3214", "Renamed", null) == aorus, "model wins over name");
+            Assert.True(ConfigManager.FindProfile(list, null, "Generic PnP Monitor", @"\\.\DISPLAY5") == oldTv, "an unnamed old profile still matches its output");
+            Assert.True(ConfigManager.FindProfile(list, "GSM82CD", "LG TV SSCR2", @"\\.\DISPLAY1") == null, "a named profile never matches by output");
+        }
+
+        [Test]
+        public static void MonitorModelComesFromTheDeviceId()
+        {
+            Assert.Equal("TCL9653", MonitorEngine.MonitorKeyFromId(@"MONITOR\TCL9653\{4d36e96e-e325-11ce-bfc1-08002be10318}\0013"), "model");
+            Assert.True(MonitorEngine.MonitorKeyFromId(@"PCI\VEN_10DE&DEV_2C02") == null, "not a monitor");
+            Assert.True(MonitorEngine.MonitorKeyFromId(null) == null, "none");
+        }
+
+        [Test]
         public static void SoundNamesAreShortened()
         {
             Assert.Equal("LG TV SSCR2", RoomManager.ShortSoundName("LG TV SSCR2 (NVIDIA High Definition Audio)"), "adapter dropped");

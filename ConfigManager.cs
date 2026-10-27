@@ -74,6 +74,10 @@ namespace Displicare
         [DataMember]
         public string FriendlyName { get; set; }
 
+        /// <summary>The monitor model (e.g. GBT3214); empty in settings from 2.4.2 and earlier.</summary>
+        [DataMember]
+        public string MonitorKey { get; set; }
+
         [DataMember]
         public int Brightness { get; set; }
 
@@ -452,6 +456,34 @@ namespace Displicare
 
             SanitizeRooms(settings);
             return settings;
+        }
+
+        /// <summary>
+        /// The saved settings for a screen: by monitor model, then by its name (settings from 2.4.2 and earlier have no
+        /// model). The output slot (\\.\DISPLAY1) only counts for old entries without a real name: rooms move screens
+        /// between slots, and matching on it gave the Beyond TV the AORUS's brightness and color.
+        /// </summary>
+        internal static DisplayProfile FindProfile(IList<DisplayProfile> profiles, string monitorKey, string friendlyName, string deviceName)
+        {
+            if (profiles == null) return null;
+            if (!string.IsNullOrEmpty(monitorKey))
+                foreach (var p in profiles)
+                    if (string.Equals(p.MonitorKey, monitorKey, StringComparison.OrdinalIgnoreCase)) return p;
+            if (!IsGenericName(friendlyName))
+                foreach (var p in profiles)
+                    if (string.IsNullOrEmpty(p.MonitorKey) && string.Equals(p.FriendlyName, friendlyName, StringComparison.OrdinalIgnoreCase)) return p;
+            if (!string.IsNullOrEmpty(deviceName))
+                foreach (var p in profiles)
+                    if (string.IsNullOrEmpty(p.MonitorKey) && IsGenericName(p.FriendlyName)
+                        && string.Equals(p.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase)) return p;
+            return null;
+        }
+
+        /// <summary>Names that don't say which screen it is: "Generic PnP Monitor", "Display 3", none.</summary>
+        internal static bool IsGenericName(string name)
+        {
+            return string.IsNullOrWhiteSpace(name) || name.StartsWith("Generic ", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("Display ", StringComparison.OrdinalIgnoreCase);
         }
 
         internal const int MaxRooms = 32;

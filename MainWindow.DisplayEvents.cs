@@ -265,6 +265,7 @@ namespace Displicare
             try
             {
                 _engine.RefreshDisplays();
+                RestoreDisplayProfiles(); // a screen a room switch just turned on gets its own settings
                 PopulateDisplays();
                 RoomsDisplaysChanged();
 

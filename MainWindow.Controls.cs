@@ -172,6 +172,28 @@ namespace Displicare
             }
         }
 
+        /// <summary>
+        /// Puts each screen's saved calibration on it: at startup, and after display changes, when room switching brings
+        /// up a screen that wasn't on before. Screens already on match their profile (it's synced on every change).
+        /// </summary>
+        private void RestoreDisplayProfiles()
+        {
+            if (_settings.DisplayProfiles == null || _settings.DisplayProfiles.Count == 0) return;
+            foreach (var d in _engine.Displays)
+            {
+                var prof = ConfigManager.FindProfile(_settings.DisplayProfiles, d.MonitorKey, d.FriendlyName, d.DeviceName);
+                if (prof == null) continue;
+                d.UserBrightness = prof.Brightness;
+                d.ColorTemperature = prof.ColorTemperature;
+                d.RedGain = prof.RedGain;
+                d.GreenGain = prof.GreenGain;
+                d.BlueGain = prof.BlueGain;
+                d.Contrast = prof.Contrast;
+                d.Gamma = prof.Gamma;
+                d.UseHardwareBrightness = prof.UseHardwareBrightness;
+            }
+        }
+
         private void SyncDisplayProfilesToSettings()
         {
             if (_settings == null || _engine == null) return;
@@ -179,14 +201,15 @@ namespace Displicare
 
             foreach (var d in _engine.Displays)
             {
-                var prof = _settings.DisplayProfiles.Find(p =>
-                    string.Equals(p.DeviceName, d.DeviceName, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(p.FriendlyName, d.FriendlyName, StringComparison.OrdinalIgnoreCase));
+                var prof = ConfigManager.FindProfile(_settings.DisplayProfiles, d.MonitorKey, d.FriendlyName, d.DeviceName);
                 if (prof == null)
                 {
-                    prof = new DisplayProfile { DeviceName = d.DeviceName, FriendlyName = d.FriendlyName };
+                    prof = new DisplayProfile();
                     _settings.DisplayProfiles.Add(prof);
                 }
+                prof.MonitorKey = d.MonitorKey;
+                prof.FriendlyName = d.FriendlyName;
+                prof.DeviceName = d.DeviceName;
 
                 prof.Brightness = d.UserBrightness;
                 prof.ColorTemperature = d.ColorTemperature;
