@@ -421,15 +421,146 @@ namespace Displicare.Tests
             Assert.True(!s.RoomsEnabled, "off by default");
             Assert.Equal(0, s.Rooms.Count, "no rooms");
             Assert.Equal("Ctrl+Alt+0", s.RoomHomeHotkey, "home hotkey default");
+            Assert.True(s.RoomController && s.RoomStreamScreensOff && s.RoomShowOverlay, "new options on for older settings");
+        }
+
+        [Test]
+        public static void ControllerComboNeedsAHold()
+        {
+            var t = new PadTracker();
+            ushort both = PadTracker.View | PadTracker.Menu;
+            Assert.True(t.Update(both, 0, 0) == null, "not on the first press");
+            Assert.True(t.Update(both, 0, PadTracker.HoldMs - 1) == null, "not before the hold time");
+            Assert.True(t.Update(both, 0, PadTracker.HoldMs) == PadButton.Combo, "after the hold time");
+            Assert.True(t.Update(both, 0, PadTracker.HoldMs * 3) == null, "once per hold");
+            Assert.True(t.Update(0, 0, PadTracker.HoldMs * 3 + 50) == null, "release");
+            Assert.True(t.Update(PadTracker.View, 0, 0) == null, "View alone");
+            Assert.True(t.Update(both, 0, 100) == null, "a new hold starts over");
+            Assert.True(t.Update(both, 0, 100 + PadTracker.HoldMs) == PadButton.Combo, "second hold");
+        }
+
+        [Test]
+        public static void ControllerMovesOncePerPress()
+        {
+            var t = new PadTracker();
+            Assert.True(t.Update(PadTracker.DpadDown, 0, 0) == PadButton.Down, "d-pad down");
+            Assert.True(t.Update(PadTracker.DpadDown, 0, 50) == null, "held d-pad doesn't repeat");
+            Assert.True(t.Update(0, 30000, 100) == PadButton.Up, "stick up");
+            Assert.True(t.Update(0, 30000, 150) == null, "held stick doesn't repeat");
+            Assert.True(t.Update(0, 2000, 200) == null, "stick back to the middle");
+            Assert.True(t.Update(0, -30000, 250) == PadButton.Down, "stick down");
+            Assert.True(t.Update(PadTracker.ButtonA, 0, 300) == PadButton.A, "A");
+            Assert.True(t.Update(PadTracker.ButtonA | PadTracker.ButtonB, 0, 350) == PadButton.B, "B while A is held");
+        }
+
+        [Test]
+        public static void ViewAndDpadPickARoomDirectly()
+        {
+            var t = new PadTracker();
+            Assert.True(t.Update(PadTracker.DpadRight, 0, 0) == null, "D-pad alone is left to the game");
+            Assert.True(t.Update(PadTracker.View, 0, 50) == null, "View alone");
+            Assert.True(t.Update(PadTracker.View | PadTracker.DpadRight, 0, 100) == PadButton.RoomRight, "View + right");
+            Assert.True(t.Update(PadTracker.View | PadTracker.DpadRight, 0, 150) == null, "once per press");
+            Assert.True(t.Update(PadTracker.View | PadTracker.DpadLeft, 0, 200) == PadButton.RoomLeft, "View + left");
+            Assert.True(t.Update(PadTracker.View | PadTracker.DpadUp, 0, 250) == PadButton.RoomUp, "View + up, not a picker move");
+            Assert.True(t.Update(PadTracker.View | PadTracker.DpadDown, 0, 300) == PadButton.RoomDown, "View + down");
+        }
+
+        [Test]
+        public static void RoomsGetControllerDirections()
+        {
+            Func<string, Room> make = key => { var r = new Room(); r.Key = key; r.Name = key; return r; };
+            var desk = make("GBT3214");
+            var lg = make("GSM82CD");
+            var tcl = make("TCL9653");
+            var rooms = new List<Room> { lg, desk, tcl };
+            Assert.True(RoomManager.AssignPadDirections(rooms, "GBT3214"), "assigned");
+            Assert.Equal(Room.PadUp, desk.PadDirection, "home is up");
+            Assert.Equal(Room.PadRight, lg.PadDirection, "first other room is right");
+            Assert.Equal(Room.PadLeft, tcl.PadDirection, "next is left");
+            Assert.True(!RoomManager.AssignPadDirections(rooms, "GBT3214"), "nothing more to do");
+
+            var phone = make("SAM76C1");
+            phone.Hidden = true;
+            var portable = make("ARZ0001");
+            lg.PadDirection = ""; // the user chose none
+            rooms.Add(phone);
+            rooms.Add(portable);
+            RoomManager.AssignPadDirections(rooms, "GBT3214");
+            Assert.Equal("", lg.PadDirection, "none stays none");
+            Assert.True(phone.PadDirection == null, "hidden rooms get none");
+            Assert.Equal(Room.PadRight, portable.PadDirection, "a new room takes the first free direction");
+        }
+
+        [Test]
+        public static void SharedControllerDirectionsStayWithTheFirstRoom()
+        {
+            var s = ConfigManager.Parse("{\"Rooms\":[{\"Key\":\"A\",\"PadDirection\":\"right\"},{\"Key\":\"B\",\"PadDirection\":\"right\"},{\"Key\":\"C\",\"PadDirection\":\"sideways\"}]}");
+            Assert.Equal("right", s.Rooms[0].PadDirection, "first keeps it");
+            Assert.Equal("", s.Rooms[1].PadDirection, "second gets none");
+            Assert.True(s.Rooms[2].PadDirection == null, "unknown is given a new one later");
+        }
+
+        [Test]
+        public static void SoundNamesAreShortened()
+        {
+            Assert.Equal("LG TV SSCR2", RoomManager.ShortSoundName("LG TV SSCR2 (NVIDIA High Definition Audio)"), "adapter dropped");
+            Assert.Equal("Beyond TV", RoomManager.ShortSoundName("1 - Beyond TV (AMD High Definition Audio Device)"), "number dropped");
+            Assert.Equal("Headphones", RoomManager.ShortSoundName("Headphones"), "plain name kept");
+            Assert.Equal("AB - CD", RoomManager.ShortSoundName("AB - CD"), "only a leading number is dropped");
+        }
+
+        [Test]
+        public static void StreamsAreIndirectDisplaysButNotMiracast()
+        {
+            var t = new TargetInfo();
+            t.Active = true;
+            t.OutputTechnology = DisplayConfigApi.OUTPUT_TECHNOLOGY_INDIRECT_VIRTUAL;
+            Assert.True(RoomManager.IsStreamTarget(t), "virtual display");
+            t.OutputTechnology = DisplayConfigApi.OUTPUT_TECHNOLOGY_MIRACAST;
+            Assert.True(!RoomManager.IsStreamTarget(t), "Miracast");
+            t.OutputTechnology = 5; // HDMI
+            Assert.True(!RoomManager.IsStreamTarget(t), "physical");
+            // SudoVDA (Steam Link) says HDMI, but its adapter is a software device, not a graphics card.
+            t.Identity = new DisplayIdentity();
+            t.Identity.AdapterPath = @"\\?\ROOT#DISPLAY#0000#{5b45201d-f2f2-4f3b-85bb-30ff1f953599}";
+            Assert.True(RoomManager.IsStreamTarget(t), "SudoVDA reporting HDMI");
+            t.Identity.AdapterPath = @"\\?\PCI#VEN_10DE&DEV_2C02&SUBSYS_176219DA&REV_A1#8B1494F7412DB04800#{5b45201d-f2f2-4f3b-85bb-30ff1f953599}";
+            Assert.True(!RoomManager.IsStreamTarget(t), "HDMI on a graphics card");
+            t.OutputTechnology = DisplayConfigApi.OUTPUT_TECHNOLOGY_INDIRECT_VIRTUAL;
+            t.Active = false;
+            Assert.True(!RoomManager.IsStreamTarget(t), "inactive");
+        }
+
+        [Test]
+        public static void VirtualDisplaysGetNoDimmingOrColor()
+        {
+            Assert.True(MonitorEngine.IsVirtualAdapter(@"root\sudomaker\sudovda"), "SudoVDA");
+            Assert.True(!MonitorEngine.IsVirtualAdapter(@"PCI\VEN_10DE&DEV_2C02&SUBSYS_176219DA&REV_A1"), "NVIDIA");
+            Assert.True(!MonitorEngine.IsVirtualAdapter(null), "unknown");
+        }
+
+        [Test]
+        public static void StreamEndChecksWhichScreensAreBack()
+        {
+            var layout = new Profile();
+            var d = new ProfileDisplay();
+            d.Identity = new DisplayIdentity();
+            d.Identity.DevicePath = @"\\?\DISPLAY#GBT3214#5&1#{e6f07b5f}";
+            layout.Displays.Add(d);
+            Assert.True(RoomManager.SameScreens(layout, new[] { "GBT3214" }), "same screen");
+            Assert.True(!RoomManager.SameScreens(layout, new string[0]), "nothing on");
+            Assert.True(!RoomManager.SameScreens(layout, new[] { "GBT3214", "GSM82CD" }), "an extra screen");
         }
 
         [Test]
         public static void KeepPromptFitsAtEveryScale()
         {
             foreach (float scale in new[] { 1f, 1.5f, 2f, 3f })
+            foreach (bool controller in new[] { false, true })
             {
                 var work = new System.Drawing.Rectangle(0, 0, (int)(1920 * scale), (int)(1040 * scale));
-                using (var form = new ConfirmForm("Living room", 15, Tuple.Create(scale, work)))
+                using (var form = new ConfirmForm("Living room", 15, Tuple.Create(scale, work), controller))
                 {
                     var client = new System.Drawing.Rectangle(System.Drawing.Point.Empty, form.LayoutBounds.Size);
                     foreach (System.Windows.Forms.Control c in form.Controls)

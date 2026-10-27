@@ -27,8 +27,9 @@ namespace Displicare.Rooms
     /// Room switching: finds a room for every connected display, switches to one (only that display on, as the main
     /// screen, with its mode, HDR and sound), asks to keep new layouts, and learns the settings used in each room.
     /// Lives on the UI thread; switches run on their own STA thread so the prompt and the 10 s wait for a waking TV
-    /// never block Displicare. Nothing runs while idle: it reacts to display changes, sound notifications, hotkeys and
-    /// pipe commands.
+    /// never block Displicare. It reacts to display changes, sound notifications, hotkeys and pipe commands; the only
+    /// thing that runs while idle is the controller check (<see cref="Gamepad"/>), and only while that option is on.
+    /// While a stream adds a virtual display, the physical screens are turned off until it ends.
     /// </summary>
     internal sealed class RoomManager : IDisposable
     {
@@ -40,6 +41,11 @@ namespace Displicare.Rooms
         static readonly TimeSpan LearnQuietTime = TimeSpan.FromSeconds(20);
         /// <summary>A TV's HDMI sound output can show up well after the picture (seen: more than 10 s on an AMD port).</summary>
         static readonly TimeSpan AudioWaitTime = TimeSpan.FromSeconds(60);
+        /// <summary>A new stream sets its resolution first; turning the other screens off waits for that.</summary>
+        static readonly TimeSpan StreamSettleTime = TimeSpan.FromSeconds(3);
+        static readonly TimeSpan MinimizeDelay = TimeSpan.FromSeconds(3);
+        const int PickerMs = 10000;
+        const int NoteMs = 4000;
 
         readonly AppSettings settings;
         readonly Action save;
@@ -50,6 +56,15 @@ namespace Displicare.Rooms
         HotkeyWindow hotkeys;
         CommandPipe pipe;
         AudioWatcher audioWatcher;
+        Gamepad gamepad;
+        DispatcherTimer streamTimer;
+        /// <summary>The physical screens from before a stream turned them off; put back when the stream ends.</summary>
+        Profile beforeStream;
+        /// <summary>The layout at the last display change without a stream: what to put back after one.</summary>
+        Profile lastLayout;
+        bool wasStreaming;
+        Dictionary<string, string> seenScreens;
+        DispatcherTimer minimizeTimer;
         List<TargetInfo> lastTargets = new List<TargetInfo>();
         string activeKey;
         bool busy;
@@ -85,8 +100,22 @@ namespace Displicare.Rooms
             try { audioWatcher = new AudioWatcher(OnDefaultAudioChanged, OnAudioOutputsChanged, dispatcher); }
             catch (Exception ex) { RoomLog.Write("Sound notifications unavailable: " + ex.Message); }
             RoomLog.Write("Room switching on.");
+            ApplyController();
             TidyLearnedModes();
             Refresh();
+        }
+
+        /// <summary>Starts or stops watching controllers to match the setting.</summary>
+        void ApplyController()
+        {
+            bool want = hotkeys != null && settings.RoomController;
+            if (want && gamepad == null) gamepad = new Gamepad(OnPad, dispatcher);
+            else if (!want && gamepad != null)
+            {
+                gamepad.Dispose();
+                gamepad = null;
+                RoomOverlay.CloseAll();
+            }
         }
 
         /// <summary>
@@ -136,6 +165,9 @@ namespace Displicare.Rooms
                 audioWatcher = null;
             }
             pendingAudioRoom = null;
+            ApplyController();
+            if (streamTimer != null) streamTimer.Stop();
+            RoomOverlay.CloseAll();
             RoomLog.Write("Room switching off.");
         }
 
@@ -151,7 +183,11 @@ namespace Displicare.Rooms
             try
             {
                 Discover();
-                if (DateTime.UtcNow - lastSwitchUtc > LearnQuietTime) Learn();
+                // A stream can change the desk screen's resolution to the client's; that isn't the room's setting.
+                bool streaming = StreamOn();
+                if (!streaming && DateTime.UtcNow - lastSwitchUtc > LearnQuietTime) Learn();
+                if (!streaming) RememberLayout();
+                CheckStream();
             }
             catch (Exception ex) { RoomLog.Write("Refresh failed: " + ex.Message); }
             RegisterHotkeys();
@@ -164,6 +200,13 @@ namespace Displicare.Rooms
         {
             lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
             activeKey = ActiveKey(lastTargets);
+            // 2.3.2 test builds took a streaming display (SudoVDA reports a connector like HDMI) for a screen of its own.
+            int stray = settings.Rooms.RemoveAll(r => DisplayConfigApi.IsVirtualAdapter(r.AdapterPath));
+            if (stray > 0)
+            {
+                RoomLog.Write("Removed " + stray + " room(s) for virtual displays.");
+                save();
+            }
             bool added = false;
             foreach (var t in lastTargets)
             {
@@ -198,6 +241,34 @@ namespace Displicare.Rooms
                     settings.RoomHomeKey = activeKey ?? settings.Rooms[0].Key;
                 save();
             }
+            if (AssignPadDirections(settings.Rooms, settings.RoomHomeKey))
+            {
+                foreach (var r in settings.Rooms)
+                    if (!string.IsNullOrEmpty(r.PadDirection)) RoomLog.Write("\"" + r.Name + "\" is on " + PadLabel(r.PadDirection) + ".");
+                save();
+            }
+            LogScreensComingAndGoing();
+        }
+
+        /// <summary>
+        /// Notes when a screen appears or disappears for Windows. Some TVs vanish when they are off or on another input;
+        /// for those, turning the TV on could later switch to it on its own.
+        /// </summary>
+        void LogScreensComingAndGoing()
+        {
+            var now = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in lastTargets)
+            {
+                if (!t.Available || t.IsVirtual || t.Identity == null) continue;
+                string key = ModelKey(t.Identity.DevicePath);
+                if (key != null) now[key] = t.Identity.DisplayName;
+            }
+            if (seenScreens != null)
+            {
+                foreach (var pair in now) if (!seenScreens.ContainsKey(pair.Key)) RoomLog.Write("Screen appeared: " + pair.Value + " (" + pair.Key + ")");
+                foreach (var pair in seenScreens) if (!now.ContainsKey(pair.Key)) RoomLog.Write("Screen went away: " + pair.Value + " (" + pair.Key + ")");
+            }
+            seenScreens = now;
         }
 
         /// <summary>The monitor model from a device path: \\?\DISPLAY#GSM82CD#5&amp;...#{guid} gives GSM82CD.</summary>
@@ -534,14 +605,24 @@ namespace Displicare.Rooms
             var profile = BuildProfile(room, native);
             bool ask = !home && (settings.RoomAskToKeep == AppSettings.RoomAskAlways
                 || (settings.RoomAskToKeep == AppSettings.RoomAskNew && !room.Confirmed));
+            bool pad = gamepad != null && gamepad.Connected;
+            if (pad && ask) gamepad.Navigating = true; // A and B answer the prompt
             busy = true;
             pendingAudioRoom = null;
+            RoomOverlay.CloseAll();
             RaiseChanged();
 
             var thread = new Thread(delegate ()
             {
                 ApplyResult result;
                 bool asked = false;
+                // Going from several screens to one can trip Explorer's "only one hidden toolbar per side" (see Taskbar).
+                bool autoHide = Taskbar.AutoHide;
+                if (autoHide)
+                {
+                    Taskbar.AutoHide = false;
+                    Thread.Sleep(300);
+                }
                 try
                 {
                     result = LayoutEngine.Apply(profile, 10);
@@ -550,7 +631,7 @@ namespace Displicare.Rooms
                     if (result.Success && ask)
                     {
                         asked = true;
-                        bool kept = ConfirmForm.Ask(room.Name, ConfirmSeconds);
+                        bool kept = ConfirmForm.Ask(room.Name, ConfirmSeconds, pad);
                         RoomLog.Write(kept ? "Kept \"" + room.Name + "\"." : "\"" + room.Name + "\" not kept; switching back.");
                         if (!kept)
                         {
@@ -569,7 +650,11 @@ namespace Displicare.Rooms
                     result = new ApplyResult();
                     result.Message = ex.Message;
                 }
-                dispatcher.BeginInvoke((Action)delegate { Finish(room, leaving, result, asked); });
+                dispatcher.BeginInvoke((Action)delegate
+                {
+                    Finish(room, leaving, result, asked);
+                    if (autoHide) AutoHideLater();
+                });
             });
             thread.SetApartmentState(ApartmentState.STA);
             thread.IsBackground = true;
@@ -580,6 +665,7 @@ namespace Displicare.Rooms
         void Finish(Room room, Room leaving, ApplyResult result, bool asked)
         {
             busy = false;
+            if (gamepad != null) gamepad.Navigating = false;
             lastSwitchUtc = DateTime.UtcNow;
             // Going back restores the old output too; that isn't the user picking one.
             ignoreAudioChangesUntil = DateTime.UtcNow.AddSeconds(5);
@@ -593,6 +679,7 @@ namespace Displicare.Rooms
                 if (room.OpenBigPicture) OpenUrl("steam://open/bigpicture");
                 else if (leaving != null && leaving != room && leaving.OpenBigPicture) OpenUrl("steam://close/bigpicture");
                 if (result.Warnings.Count > 0) RaiseNotify("Switched to " + room.Name, string.Join("\n", result.Warnings.ToArray()), true);
+                if (settings.RoomShowOverlay) RoomOverlay.ShowNote(room.Name, SwitchNote(room), NoteMs);
             }
             else if (result.Reverted) RaiseNotify(room.Name + " wasn't kept", result.Message, false);
             else RaiseNotify("Couldn't switch to " + room.Name, result.Message, true);
@@ -601,9 +688,51 @@ namespace Displicare.Rooms
             {
                 lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
                 activeKey = ActiveKey(lastTargets);
+                CheckStream(); // a stream that started during the switch
+                if (!StreamOn()) RememberLayout();
             }
             catch (Exception) { }
             RaiseChanged();
+        }
+
+        /// <summary>"3840 × 2160 · 120 Hz · HDR · LG TV SSCR2": what the room's screen and sound are now.</summary>
+        string SwitchNote(Room room)
+        {
+            var parts = new List<string>();
+            try
+            {
+                foreach (var d in DisplayTopology.GetActiveDisplays())
+                {
+                    if (d.IsVirtual) continue;
+                    parts.Add(d.Width + " × " + d.Height);
+                    parts.Add(Math.Round(d.RefreshHz) + " Hz");
+                    if (d.Hdr == 1) parts.Add("HDR");
+                    break;
+                }
+                if (pendingAudioRoom == room) parts.Add("sound when the TV is ready");
+                else
+                {
+                    var audio = AudioOutputs.Default();
+                    if (audio != null) parts.Add(ShortSoundName(audio.Name));
+                }
+            }
+            catch (Exception ex) { RoomLog.Write("Couldn't describe the switch: " + ex.Message); }
+            return string.Join("  ·  ", parts.ToArray());
+        }
+
+        /// <summary>"LG TV SSCR2 (NVIDIA High Definition Audio)" → "LG TV SSCR2"; "1 - LG TV" → "LG TV".</summary>
+        internal static string ShortSoundName(string name)
+        {
+            name = (name ?? "").Trim();
+            int paren = name.LastIndexOf(" (", StringComparison.Ordinal);
+            if (paren > 0 && name.EndsWith(")")) name = name.Substring(0, paren);
+            int dash = name.IndexOf(" - ", StringComparison.Ordinal);
+            if (dash > 0 && dash <= 3)
+            {
+                int n;
+                if (int.TryParse(name.Substring(0, dash), out n)) name = name.Substring(dash + 3);
+            }
+            return name;
         }
 
         /// <summary>The one-display layout for a room. Sound is handled separately (<see cref="BeginRoomAudio"/>).</summary>
@@ -656,7 +785,369 @@ namespace Displicare.Rooms
             if (room != null && modeChanged) room.Confirmed = false;
             save();
             RegisterHotkeys();
+            ApplyController();
+            if (!settings.RoomStreamScreensOff && streamTimer != null) streamTimer.Stop();
             RaiseChanged();
+        }
+
+        // ---------------------------------------------------------------- controller
+
+        void OnPad(PadButton button)
+        {
+            if (gamepad == null) return;
+            if (ConfirmForm.IsOpen)
+            {
+                if (button == PadButton.A) ConfirmForm.Answer(true);
+                else if (button == PadButton.B) ConfirmForm.Answer(false);
+                return;
+            }
+            if (button >= PadButton.RoomUp && button <= PadButton.RoomLeft)
+            {
+                if (!busy) SwitchByPad(Room.PadDirections[button - PadButton.RoomUp]);
+                return;
+            }
+            if (button == PadButton.Combo)
+            {
+                if (RoomOverlay.PickerOpen) ClosePicker();
+                else if (!busy) OpenPicker();
+                return;
+            }
+            if (!RoomOverlay.PickerOpen)
+            {
+                gamepad.Navigating = busy; // the picker closed on its own
+                return;
+            }
+            switch (button)
+            {
+                case PadButton.Up: RoomOverlay.MovePicker(-1, PickerMs); break;
+                case PadButton.Down: RoomOverlay.MovePicker(1, PickerMs); break;
+                case PadButton.B: ClosePicker(); break;
+                case PadButton.A:
+                    var room = FindByKey(RoomOverlay.PickerSelection as string);
+                    ClosePicker();
+                    if (room == null) break;
+                    if (string.Equals(room.Key, activeKey, StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (settings.RoomShowOverlay) RoomOverlay.ShowNote(room.Name, SwitchNote(room), NoteMs);
+                        break;
+                    }
+                    SwitchTo(room, room == HomeRoom); // going home never asks, like the home hotkey
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// View + a D-pad direction: straight to the room on that direction, wherever you are. Made for the couch, where
+        /// the TV is still blank and the picker would open on a screen you can't see.
+        /// </summary>
+        void SwitchByPad(string direction)
+        {
+            Room room = null;
+            foreach (var r in settings.Rooms) if (!r.Hidden && r.PadDirection == direction) room = r;
+            if (room == null)
+            {
+                RoomLog.Write("Controller: no room on View + " + direction + ".");
+                return;
+            }
+            if (string.Equals(room.Key, activeKey, StringComparison.OrdinalIgnoreCase))
+            {
+                if (settings.RoomShowOverlay) RoomOverlay.ShowNote(room.Name, SwitchNote(room), NoteMs);
+                return;
+            }
+            RoomLog.Write("Controller: View + " + direction + ", \"" + room.Name + "\".");
+            SwitchTo(room, room == HomeRoom); // going home never asks, like the home hotkey
+        }
+
+        /// <summary>
+        /// Gives rooms that never had one a controller direction: the home room Up (the way back to the desk), the others
+        /// Right, Left, Down in the order of the Rooms tab. Directions already taken, or set to none, are left alone.
+        /// </summary>
+        internal static bool AssignPadDirections(IList<Room> rooms, string homeKey)
+        {
+            var taken = new HashSet<string>();
+            foreach (var r in rooms) if (!string.IsNullOrEmpty(r.PadDirection)) taken.Add(r.PadDirection);
+            var order = new List<Room>();
+            foreach (var r in rooms) if (string.Equals(r.Key, homeKey, StringComparison.OrdinalIgnoreCase)) order.Add(r);
+            foreach (var r in rooms) if (!order.Contains(r)) order.Add(r);
+
+            bool changed = false;
+            foreach (var r in order)
+            {
+                if (r.PadDirection != null || r.Hidden) continue;
+                bool home = string.Equals(r.Key, homeKey, StringComparison.OrdinalIgnoreCase);
+                var preference = home
+                    ? new[] { Room.PadUp, Room.PadRight, Room.PadLeft, Room.PadDown }
+                    : new[] { Room.PadRight, Room.PadLeft, Room.PadDown, Room.PadUp };
+                r.PadDirection = "";
+                foreach (var d in preference) if (taken.Add(d)) { r.PadDirection = d; break; }
+                changed = true;
+            }
+            return changed;
+        }
+
+        /// <summary>"View + →" for a room's direction, or null.</summary>
+        internal static string PadLabel(string direction)
+        {
+            switch (direction)
+            {
+                case Room.PadUp: return "View + ↑";
+                case Room.PadRight: return "View + →";
+                case Room.PadDown: return "View + ↓";
+                case Room.PadLeft: return "View + ←";
+                default: return null;
+            }
+        }
+
+        void OpenPicker()
+        {
+            var items = new List<PickerItem>();
+            int selected = -1;
+            foreach (var s in Statuses())
+            {
+                if (s.Room.Hidden) continue;
+                var item = new PickerItem();
+                item.Name = s.Room.Name;
+                item.Tag = s.Room.Key;
+                item.Note = s.Active ? "On now" : s.Connected ? "" : "Not connected";
+                // Start on the first other screen that is there: the likely reason for opening the picker.
+                if (selected < 0 && !s.Active && s.Connected) selected = items.Count;
+                items.Add(item);
+            }
+            if (items.Count == 0) return;
+            RoomLog.Write("Controller: room picker opened.");
+            RoomOverlay.ShowPicker(items, Math.Max(0, selected), PickerMs);
+            gamepad.Navigating = true;
+        }
+
+        void ClosePicker()
+        {
+            RoomOverlay.CloseAll();
+            if (gamepad != null) gamepad.Navigating = false;
+        }
+
+        // ---------------------------------------------------------------- streaming
+
+        /// <summary>
+        /// A stream (Steam Link, Apollo, Sunshine) shows up as a new indirect display next to the physical ones, which
+        /// otherwise sit there lit while nobody looks at them. Miracast mirrors a screen, so it doesn't count.
+        /// </summary>
+        internal static bool IsStreamTarget(TargetInfo t)
+        {
+            return t.Active && t.IsVirtual && t.OutputTechnology != DisplayConfigApi.OUTPUT_TECHNOLOGY_MIRACAST;
+        }
+
+        /// <summary>Called after every display change: turns the physical screens off when a stream starts, and back on after.</summary>
+        void CheckStream()
+        {
+            bool streaming = false;
+            var physical = new List<string>();
+            foreach (var t in lastTargets)
+            {
+                if (IsStreamTarget(t)) streaming = true;
+                else if (t.Active && !t.IsVirtual) physical.Add(t.Identity != null ? ModelKey(t.Identity.DevicePath) : null);
+            }
+            // Whoever turned the screens off (Displicare, or Windows remembering the last stream), they come back with
+            // whatever was open, Steam's window first; minimize it all so nothing sits still on an OLED.
+            if (wasStreaming && !streaming && settings.RoomStreamScreensOff) ScheduleMinimize();
+            wasStreaming = streaming;
+
+            if (beforeStream != null)
+            {
+                if (streaming || busy) return; // still streaming; a screen turned back on by hand stays on
+                var restore = beforeStream;
+                beforeStream = null;
+                if (SameScreens(restore, physical))
+                {
+                    RoomLog.Write("Stream ended; Windows already turned the screens back on.");
+                    return;
+                }
+                RoomLog.Write("Stream ended; turning the screens back on.");
+                RunLayout(restore, 10, delegate (ApplyResult r)
+                {
+                    if (!r.Success) RaiseNotify("Couldn't turn the screens back on", r.Message, true);
+                    else ScheduleMinimize(); // count from when the screens are really back
+                });
+                return;
+            }
+
+            if (!streaming || physical.Count == 0 || !settings.RoomStreamScreensOff || busy)
+            {
+                if (streamTimer != null) streamTimer.Stop();
+                return;
+            }
+            if (streamTimer == null)
+            {
+                streamTimer = new DispatcherTimer(DispatcherPriority.Normal, dispatcher);
+                streamTimer.Interval = StreamSettleTime;
+                streamTimer.Tick += delegate
+                {
+                    streamTimer.Stop();
+                    ScreensOffForStream();
+                };
+            }
+            if (!streamTimer.IsEnabled) streamTimer.Start();
+        }
+
+        /// <summary>Turns taskbar auto-hide back on once Explorer has settled after a switch.</summary>
+        void AutoHideLater()
+        {
+            var timer = new DispatcherTimer(DispatcherPriority.Normal, dispatcher);
+            timer.Interval = TimeSpan.FromSeconds(2.5);
+            timer.Tick += delegate
+            {
+                timer.Stop();
+                Taskbar.AutoHide = true;
+                RoomLog.Write("Taskbar auto-hide back on.");
+            };
+            timer.Start();
+        }
+
+        /// <summary>Minimizes every window a few seconds from now (Steam brings its window up as the stream closes).</summary>
+        void ScheduleMinimize()
+        {
+            if (minimizeTimer == null)
+            {
+                minimizeTimer = new DispatcherTimer(DispatcherPriority.Normal, dispatcher);
+                minimizeTimer.Interval = MinimizeDelay;
+                minimizeTimer.Tick += delegate
+                {
+                    minimizeTimer.Stop();
+                    if (hotkeys == null || StreamOn()) return; // switched off, or a new stream began
+                    try
+                    {
+                        var type = Type.GetTypeFromProgID("Shell.Application");
+                        object shell = Activator.CreateInstance(type);
+                        try { type.InvokeMember("MinimizeAll", System.Reflection.BindingFlags.InvokeMethod, null, shell, null); }
+                        finally { System.Runtime.InteropServices.Marshal.ReleaseComObject(shell); }
+                        RoomLog.Write("Stream ended; minimized all windows.");
+                    }
+                    catch (Exception ex) { RoomLog.Write("Couldn't minimize the windows: " + ex.Message); }
+                };
+            }
+            minimizeTimer.Stop();
+            minimizeTimer.Start();
+        }
+
+        bool StreamOn()
+        {
+            foreach (var t in lastTargets) if (IsStreamTarget(t)) return true;
+            return false;
+        }
+
+        void RememberLayout()
+        {
+            bool physical = false;
+            foreach (var t in lastTargets) if (t.Active && !t.IsVirtual) physical = true;
+            if (!physical) return;
+            try { lastLayout = LayoutEngine.Capture("Before streaming", false); }
+            catch (Exception ex) { RoomLog.Write("Couldn't record the layout: " + ex.Message); }
+        }
+
+        /// <summary>Whether the screens on now are the ones in <paramref name="layout"/> (by model).</summary>
+        internal static bool SameScreens(Profile layout, IList<string> activeKeys)
+        {
+            var want = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var d in layout.Displays) want.Add(d.Identity != null ? ModelKey(d.Identity.DevicePath) ?? "" : "");
+            var have = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var k in activeKeys) have.Add(k ?? "");
+            return have.SetEquals(want);
+        }
+
+        void ScreensOffForStream()
+        {
+            if (hotkeys == null || busy || beforeStream != null || !settings.RoomStreamScreensOff) return;
+            ActiveDisplay stream = null;
+            bool physical = false;
+            try
+            {
+                lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
+                foreach (var t in lastTargets) if (t.Active && !t.IsVirtual) physical = true;
+                foreach (var d in DisplayTopology.GetActiveDisplays())
+                    if (d.IsVirtual && d.OutputTechnology != DisplayConfigApi.OUTPUT_TECHNOLOGY_MIRACAST) stream = d;
+                if (stream == null || !physical) return; // the stream ended, or the screens are off already
+                // Not the layout now: when the stream's display arrives, Windows or Steam may already have turned a screen off.
+                beforeStream = lastLayout ?? LayoutEngine.Capture("Before streaming", false);
+            }
+            catch (Exception ex)
+            {
+                RoomLog.Write("Couldn't prepare for the stream: " + ex.Message);
+                return;
+            }
+
+            // The stream's own display, as it is now (the client already chose its resolution), alone and primary.
+            var display = new ProfileDisplay();
+            display.Identity = stream.Identity;
+            display.Primary = true;
+            display.Width = stream.Width;
+            display.Height = stream.Height;
+            display.RefreshHz = stream.RefreshHz;
+            display.Hdr = -1; // leave HDR to the stream
+            var profile = new Profile();
+            profile.Name = "Streaming";
+            profile.Displays.Add(display);
+
+            string name = stream.Identity != null ? stream.Identity.DisplayName : "the stream";
+            RoomLog.Write("Stream to " + name + " started; turning the other screens off.");
+            RunLayout(profile, 0, delegate (ApplyResult r)
+            {
+                if (!r.Success)
+                {
+                    beforeStream = null;
+                    RaiseNotify("Couldn't turn the screens off for the stream", r.Message, true);
+                }
+                else if (settings.RoomShowOverlay)
+                    RoomOverlay.ShowNote("Streaming to " + name, "Your screens are off and come back when the stream ends", NoteMs);
+            });
+        }
+
+        /// <summary>Applies a layout on its own thread (it can wait for screens), then reports on the UI thread.</summary>
+        void RunLayout(Profile profile, int waitSeconds, Action<ApplyResult> done)
+        {
+            busy = true;
+            RaiseChanged();
+            var thread = new Thread(delegate ()
+            {
+                ApplyResult result;
+                // Several screens appearing or going at once trip Explorer's "only one hidden toolbar per side" with
+                // auto-hide on (see Taskbar); keep it off for the change and give Explorer a moment before turning it back on.
+                bool autoHide = Taskbar.AutoHide;
+                if (autoHide)
+                {
+                    Taskbar.AutoHide = false;
+                    Thread.Sleep(300);
+                }
+                try { result = LayoutEngine.Apply(profile, waitSeconds); }
+                catch (Exception ex)
+                {
+                    RoomLog.Write("Layout failed: " + ex);
+                    result = new ApplyResult();
+                    result.Message = ex.Message;
+                }
+                if (autoHide)
+                {
+                    Thread.Sleep(2500);
+                    Taskbar.AutoHide = true;
+                    RoomLog.Write("Taskbar auto-hide back on.");
+                }
+                dispatcher.BeginInvoke((Action)delegate
+                {
+                    busy = false;
+                    lastSwitchUtc = DateTime.UtcNow;
+                    done(result);
+                    try
+                    {
+                        lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
+                        activeKey = ActiveKey(lastTargets);
+                        CheckStream(); // the stream may have ended meanwhile
+                        if (!StreamOn() && !busy) RememberLayout();
+                    }
+                    catch (Exception) { }
+                    RaiseChanged();
+                });
+            });
+            thread.IsBackground = true;
+            thread.Name = "Displicare layout";
+            thread.Start();
         }
 
         // ---------------------------------------------------------------- hotkeys and commands

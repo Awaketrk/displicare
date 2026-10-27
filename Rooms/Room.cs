@@ -13,6 +13,8 @@ namespace Displicare
         public const string HdrAuto = "auto", HdrOn = "on", HdrOff = "off";
         /// <summary>Audio "auto": the display's own sound output (a TV's HDMI audio) if it has one, else leave sound alone.</summary>
         public const string AudioAuto = "auto", AudioKeep = "keep", AudioDevice = "device";
+        public const string PadUp = "up", PadRight = "right", PadDown = "down", PadLeft = "left";
+        public static readonly string[] PadDirections = { PadUp, PadRight, PadDown, PadLeft };
 
         public Room()
         {
@@ -56,6 +58,11 @@ namespace Displicare
         [DataMember] public string AudioName { get; set; }
 
         [DataMember] public string Hotkey { get; set; }
+        /// <summary>
+        /// View + this D-pad direction on a controller switches here, without looking at a screen (you're on the couch and
+        /// the TV is still blank): "up", "right", "down", "left", "" for none, null until Displicare has given it one.
+        /// </summary>
+        [DataMember] public string PadDirection { get; set; }
         [DataMember] public bool OpenBigPicture { get; set; }
         /// <summary>Hidden rooms stay out of the tab, the tray and hotkeys (a portable screen you never game on).</summary>
         [DataMember] public bool Hidden { get; set; }

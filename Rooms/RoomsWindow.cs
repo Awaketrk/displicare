@@ -254,7 +254,7 @@ namespace Displicare.Rooms
             var name = RoomsView.Label(s.Room.Name, 20, true, RoomsView.TextPrimary);
             name.FontWeight = FontWeights.Bold;
             titles.Children.Add(name);
-            titles.Children.Add(RoomsView.Label(RoomsView.Details(s), 11.5, false, RoomsView.TextMuted));
+            titles.Children.Add(RoomsView.Label(RoomsView.Details(s, rooms.Settings.RoomController), 11.5, false, RoomsView.TextMuted));
             Grid.SetColumn(titles, 1);
             top.Children.Add(titles);
 

@@ -411,6 +411,9 @@ namespace Displicare
             PositionWindowNearTray();
         }
 
+        /// <summary>The window's size in MainWindow.xaml, in device-independent pixels.</summary>
+        private const double DesignWidth = 440, DesignHeight = 640;
+
         public void PositionWindowNearTray()
         {
             try
@@ -471,28 +474,13 @@ namespace Displicare
                 if (scaleX <= 0.001) scaleX = 1.0;
                 if (scaleY <= 0.001) scaleY = 1.0;
 
-                // 3. Determine the actual physical width and height of the window
-                RECT winRect;
-                int physicalWidth = 0;
-                int physicalHeight = 0;
-
-                if (GetWindowRect(hwnd, out winRect) && (winRect.Right - winRect.Left) > 50)
-                {
-                    physicalWidth = winRect.Right - winRect.Left;
-                    physicalHeight = winRect.Bottom - winRect.Top;
-                }
-
-                // If window layout is not yet rendered, compute from design DIPs (440x640)
-                if (physicalWidth <= 50)
-                {
-                    double wDIP = _window.Width > 50 ? _window.Width : 440.0;
-                    physicalWidth = (int)Math.Round(wDIP * scaleX);
-                }
-                if (physicalHeight <= 50)
-                {
-                    double hDIP = _window.Height > 50 ? _window.Height : 640.0;
-                    physicalHeight = (int)Math.Round(hDIP * scaleY);
-                }
+                // 3. Physical size from the design size and this screen's scaling. Never from the window's current
+                //    pixels: those belong to the screen it was last on, and after a stream left only a 100% virtual
+                //    display they made the window two thirds the size on the 150% monitor, every time after.
+                _window.Width = DesignWidth;
+                _window.Height = DesignHeight;
+                int physicalWidth = (int)Math.Round(DesignWidth * scaleX);
+                int physicalHeight = (int)Math.Round(DesignHeight * scaleY);
 
                 // Margins from screen edges in physical pixels
                 int marginX = (int)Math.Round(12 * scaleX);

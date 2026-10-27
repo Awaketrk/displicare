@@ -171,6 +171,9 @@ namespace Displicare
             RoomHomeKey = "";
             RoomHomeHotkey = "Ctrl+Alt+0";
             RoomAskToKeep = RoomAskNew;
+            RoomController = true;
+            RoomStreamScreensOff = true;
+            RoomShowOverlay = true;
         }
 
         public const string RoomAskNew = "new", RoomAskAlways = "always", RoomAskNever = "never";
@@ -199,6 +202,18 @@ namespace Displicare
         /// <summary>When to ask "Keep this display layout?": new (until a room's switch was kept once), always or never.</summary>
         [DataMember]
         public string RoomAskToKeep { get; set; }
+
+        /// <summary>Holding View + Menu on an Xbox-style controller opens the room picker.</summary>
+        [DataMember]
+        public bool RoomController { get; set; }
+
+        /// <summary>While a stream adds a virtual display (Steam Link, Apollo), the physical screens are switched off.</summary>
+        [DataMember]
+        public bool RoomStreamScreensOff { get; set; }
+
+        /// <summary>A short note on the new screen after each switch: room, mode, HDR and sound.</summary>
+        [DataMember]
+        public bool RoomShowOverlay { get; set; }
 
         [DataMember]
         public bool SolarSyncEnabled { get; set; }
@@ -454,8 +469,12 @@ namespace Displicare
             if (settings.Rooms == null) settings.Rooms = new List<Room>();
             settings.Rooms.RemoveAll(r => r == null || string.IsNullOrWhiteSpace(r.Key));
             if (settings.Rooms.Count > MaxRooms) settings.Rooms.RemoveRange(MaxRooms, settings.Rooms.Count - MaxRooms);
+            var padTaken = new HashSet<string>();
             foreach (var r in settings.Rooms)
             {
+                // Unknown directions are given a new one; a direction two rooms share stays with the first.
+                if (r.PadDirection != null && r.PadDirection != "" && Array.IndexOf(Room.PadDirections, r.PadDirection) < 0) r.PadDirection = null;
+                if (!string.IsNullOrEmpty(r.PadDirection) && !padTaken.Add(r.PadDirection)) r.PadDirection = "";
                 if (string.IsNullOrWhiteSpace(r.Name)) r.Name = string.IsNullOrWhiteSpace(r.DisplayName) ? r.Key : r.DisplayName;
                 if (r.Name.Length > MaxRoomNameLength) r.Name = r.Name.Substring(0, MaxRoomNameLength);
                 if (r.Width < 0 || r.Width > 16384 || r.Height < 0 || r.Height > 16384 || (r.Width == 0) != (r.Height == 0))

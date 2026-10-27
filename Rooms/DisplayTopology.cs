@@ -22,7 +22,7 @@ namespace Displicare.Rooms
         public uint OutputTechnology;
         public DisplayIdentity Identity;
 
-        public bool IsVirtual { get { return DisplayConfigApi.IsVirtualOutput(OutputTechnology); } }
+        public bool IsVirtual { get { return DisplayConfigApi.IsVirtual(OutputTechnology, Identity); } }
     }
 
     /// <summary>An active display as the user sees it.</summary>
@@ -35,7 +35,7 @@ namespace Displicare.Rooms
         public double RefreshHz;
         public int Hdr;
         public uint OutputTechnology;
-        public bool IsVirtual { get { return DisplayConfigApi.IsVirtualOutput(OutputTechnology); } }
+        public bool IsVirtual { get { return DisplayConfigApi.IsVirtual(OutputTechnology, Identity); } }
     }
 
     /// <summary>Reads the live display configuration through the CCD API.</summary>

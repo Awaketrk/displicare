@@ -247,7 +247,8 @@ namespace Displicare
 
             while (EnumDisplayDevices(null, devNum, ref d, 0))
             {
-                if ((d.StateFlags & 1) != 0) // DISPLAY_DEVICE_ATTACHED_TO_DESKTOP
+                // Attached to the desktop, and not a virtual display (a stream's screen: the device shows it with its own brightness)
+                if ((d.StateFlags & 1) != 0 && !IsVirtualAdapter(d.DeviceID))
                 {
                     string devName = d.DeviceName;
                     string friendlyName = "Display " + (devNum + 1);
@@ -385,8 +386,20 @@ namespace Displicare
                 generation = ++_refreshGeneration;
             }
 
+            // The filter covers every screen, a stream's too: with no HDR display left (say only a stream is on), clear it.
+            if (FilterSource(newDisplays) == null) UpdateColorFilter();
+
             var waiting = newDisplays.FindAll(x => !x.SupportsDdcCi && x.UseHardwareBrightness && x.HMonitor != IntPtr.Zero);
             if (waiting.Count > 0) ThreadPool.QueueUserWorkItem(_ => RetryDdc(waiting, generation));
+        }
+
+        /// <summary>
+        /// Virtual display drivers (SudoVDA for Steam Link and Apollo, Parsec, Virtual Display Driver) are software devices
+        /// with a ROOT\ device ID, e.g. root\sudomaker\sudovda; graphics cards are PCI\VEN_...
+        /// </summary>
+        internal static bool IsVirtualAdapter(string deviceId)
+        {
+            return deviceId != null && deviceId.StartsWith(@"ROOT\", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>Seconds after a refresh to ask again a display set to hardware brightness that didn't answer.</summary>

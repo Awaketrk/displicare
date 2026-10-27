@@ -269,6 +269,21 @@ namespace Displicare.Rooms
                 || outputTechnology == OUTPUT_TECHNOLOGY_MIRACAST;
         }
 
+        /// <summary>
+        /// A display driver with no hardware behind it (SudoVDA for Steam Link and Apollo, Parsec, the IddCx samples) sits
+        /// on a software-enumerated adapter, \\?\ROOT#DISPLAY#0000#{...}, and may report an ordinary connector type such as
+        /// HDMI. Graphics cards are PCI devices.
+        /// </summary>
+        public static bool IsVirtualAdapter(string adapterPath)
+        {
+            return adapterPath != null && adapterPath.StartsWith(@"\\?\ROOT#", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public static bool IsVirtual(uint outputTechnology, DisplayIdentity identity)
+        {
+            return IsVirtualOutput(outputTechnology) || (identity != null && IsVirtualAdapter(identity.AdapterPath));
+        }
+
         public static string OutputName(uint outputTechnology)
         {
             switch (outputTechnology)

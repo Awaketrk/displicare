@@ -53,6 +53,10 @@ Turn it on in **Displays > General Settings**. Every connected screen becomes a 
 - Rooms remember what you use there: change the resolution, HDR or sound output in Windows and the room keeps it.
 - **Hotkeys:** Ctrl+Alt+1, 2, 3… switch to each room; Ctrl+Alt+0 goes back to the home room without asking.
 - `Displicare.exe --room "LG TV"` switches from a Steam or desktop shortcut.
+- **Controller:** hold **View + Menu** for a second to open a room picker on screen; up/down chooses, **A** switches, **B** closes. A and B also answer "Keep this display layout?". **View + a D-pad direction** goes straight to the room on that direction, so you can switch from the couch while the TV is still blank: the home room is on Up, the others on Right, Left and Down (change it per room under **Controller**). It works with Xbox controllers and anything Steam presents as one. Displicare only reads the controller through XInput, as games do; it never hooks, injects or sends input, so it's safe with anti-cheat.
+- **Streaming:** when Steam Link (or Apollo, Sunshine) streams to a virtual display, your physical screens are switched off so an OLED isn't left showing a still desktop, and they come back as they were when the stream ends, with every window minimized (Steam's included) so nothing sits still on screen. Displicare's brightness and color never touch the virtual display; the device you stream to has its own.
+- After each switch a short note on the new screen shows the room, resolution, refresh rate, HDR and sound.
+- Each of these three can be turned off under **⚙ Room settings… > All rooms**.
 
 ### Brightness modes
 

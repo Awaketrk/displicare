@@ -168,13 +168,16 @@ namespace Displicare.Rooms
             return mode;
         }
 
-        public static string Details(RoomStatus s)
+        /// <param name="controller">Controller switching is on: show the room's View + D-pad combo.</param>
+        public static string Details(RoomStatus s, bool controller)
         {
             var parts = new List<string>();
             if (!string.IsNullOrEmpty(s.Room.DisplayName) && s.Room.DisplayName != s.Room.Name) parts.Add(s.Room.DisplayName);
             if (!string.IsNullOrEmpty(s.Connection)) parts.Add(s.Connection);
             parts.Add(Summary(s.Room));
             if (!string.IsNullOrEmpty(s.Room.Hotkey)) parts.Add(s.Room.Hotkey);
+            string pad = RoomManager.PadLabel(s.Room.PadDirection);
+            if (pad != null && controller) parts.Add(pad);
             return string.Join("  ·  ", parts.ToArray());
         }
 
@@ -209,7 +212,7 @@ namespace Displicare.Rooms
             top.Children.Add(badge);
             stack.Children.Add(top);
 
-            var sub = Label(Details(s), 11, false, TextMuted);
+            var sub = Label(Details(s, rooms.Settings.RoomController), 11, false, TextMuted);
             sub.Margin = new Thickness(2, 2, 0, 10);
             stack.Children.Add(sub);
 
@@ -356,6 +359,26 @@ namespace Displicare.Rooms
                 rooms.RoomEdited(room, false);
             }), labelWidth));
 
+            var pad = Combo();
+            pad.Items.Add(Item("None", ""));
+            foreach (var d in Room.PadDirections) pad.Items.Add(Item(RoomManager.PadLabel(d), d));
+            Select(pad, room.PadDirection ?? "");
+            pad.SelectionChanged += (o, e) =>
+            {
+                var sel = pad.SelectedItem as ComboBoxItem;
+                if (sel == null || (string)sel.Tag == (room.PadDirection ?? "")) return;
+                string d = (string)sel.Tag;
+                // One room per direction: the room that had it gives it up.
+                if (d.Length > 0)
+                    foreach (var other in rooms.Settings.Rooms)
+                        if (other != room && other.PadDirection == d) other.PadDirection = "";
+                room.PadDirection = d;
+                rooms.RoomEdited(room, false);
+            };
+            var padRow = Row("Controller", pad, labelWidth);
+            padRow.ToolTip = "Hold View and press this D-pad direction to switch here, even when you can't see a screen: on the couch with the TV still blank, View + its direction brings the picture to it.";
+            host.Children.Add(padRow);
+
             var bigPicture = Toggle("Open Steam Big Picture when switching here", room.OpenBigPicture);
             bigPicture.Margin = new Thickness(labelWidth, 4, 0, 10);
             bigPicture.Click += (o, e) =>
@@ -446,7 +469,30 @@ namespace Displicare.Rooms
                 settings.RoomHomeHotkey = keys;
                 rooms.RoomEdited(null, false);
             }), labelWidth));
+
+            stack.Children.Add(OptionToggle("Switch with a controller: hold View + Menu", settings.RoomController,
+                "Opens a room picker on screen: up and down to choose, A to switch, B to close. A and B also answer \"Keep this display layout?\". View + a D-pad direction goes straight to the room on that direction (set per room), even when you can't see a screen. Works with Xbox controllers and anything Steam shows as one. Displicare only reads the controller the way games do: it doesn't hook, inject or send input, so it is safe with anti-cheat.",
+                v => settings.RoomController = v));
+            stack.Children.Add(OptionToggle("Turn the screens off while streaming", settings.RoomStreamScreensOff,
+                "When Steam Link (or Apollo, Sunshine) streams to a virtual display, the physical screens are switched off, so an OLED isn't left showing a still desktop. They come back as they were when the stream ends, with every window minimized so nothing sits still on screen.",
+                v => settings.RoomStreamScreensOff = v));
+            stack.Children.Add(OptionToggle("Show the room on screen after switching", settings.RoomShowOverlay,
+                "A short note on the new screen with the room, resolution, refresh rate, HDR and sound.",
+                v => settings.RoomShowOverlay = v));
             return stack;
+        }
+
+        CheckBox OptionToggle(string text, bool value, string tooltip, Action<bool> set)
+        {
+            var toggle = Toggle(text, value);
+            toggle.Margin = new Thickness(0, 6, 0, 2);
+            toggle.ToolTip = tooltip;
+            toggle.Click += (o, e) =>
+            {
+                set(toggle.IsChecked == true);
+                rooms.RoomEdited(null, false);
+            };
+            return toggle;
         }
 
         public TextBox TextField(string value, int maxLength, string tooltip)

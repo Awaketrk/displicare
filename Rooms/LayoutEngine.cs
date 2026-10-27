@@ -41,7 +41,7 @@ namespace Displicare.Rooms
                 uint tech;
                 var identity = DisplayTopology.GetIdentity(p.targetInfo.adapterId, p.targetInfo.id, out tech);
                 if (tech == 0) tech = p.targetInfo.outputTechnology;
-                if (!includeVirtual && DisplayConfigApi.IsVirtualOutput(tech)) continue;
+                if (!includeVirtual && DisplayConfigApi.IsVirtual(tech, identity)) continue;
 
                 var d = new ProfileDisplay();
                 d.Identity = identity;

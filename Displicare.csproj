@@ -88,6 +88,9 @@
     <Compile Include="Rooms\AudioOutputs.cs" />
     <Compile Include="Rooms\CommandPipe.cs" />
     <Compile Include="Rooms\ConfirmForm.cs" />
+    <Compile Include="Rooms\Gamepad.cs" />
+    <Compile Include="Rooms\RoomOverlay.cs" />
+    <Compile Include="Rooms\Taskbar.cs" />
     <Compile Include="Rooms\DisplayConfigApi.cs" />
     <Compile Include="Rooms\DisplayTopology.cs" />
     <Compile Include="Rooms\Edid.cs" />

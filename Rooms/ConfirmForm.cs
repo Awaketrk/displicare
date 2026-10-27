@@ -7,7 +7,7 @@ namespace Displicare.Rooms
 {
     /// <summary>
     /// "Keep this layout?" with a countdown, centred on the new primary display. No answer counts as no, so a switch
-    /// to a TV that is off (or showing nothing) comes back on its own. Enter keeps, Esc goes back.
+    /// to a TV that is off (or showing nothing) comes back on its own. Enter or a controller's A keeps, Esc or B goes back.
     /// </summary>
     /// <remarks>
     /// Laid out by hand in physical pixels for the display it opens on. WinForms on .NET 4.8 sizes point fonts and
@@ -20,14 +20,29 @@ namespace Displicare.Rooms
         readonly Label countdown = new Label();
         readonly string profileName;
         int remaining;
+        static volatile ConfirmForm open;
 
-        public static bool Ask(string profileName, int seconds)
+        /// <param name="controller">A controller is connected: the buttons say A and B, which answer through <see cref="Answer"/>.</param>
+        public static bool Ask(string profileName, int seconds, bool controller)
         {
-            using (var form = new ConfirmForm(profileName, seconds))
-                return form.ShowDialog() == DialogResult.Yes;
+            using (var form = new ConfirmForm(profileName, seconds, Primary(), controller))
+            {
+                open = form;
+                try { return form.ShowDialog() == DialogResult.Yes; }
+                finally { open = null; }
+            }
         }
 
-        ConfirmForm(string profileName, int seconds) : this(profileName, seconds, Primary()) { }
+        public static bool IsOpen { get { return open != null; } }
+
+        /// <summary>Answers the open prompt from another thread (a controller's A or B). Does nothing when none is open.</summary>
+        public static void Answer(bool keep)
+        {
+            var form = open;
+            if (form == null) return;
+            try { form.BeginInvoke((Action)delegate { form.DialogResult = keep ? DialogResult.Yes : DialogResult.No; }); }
+            catch (InvalidOperationException) { } // closed in the meantime
+        }
 
         static Tuple<float, Rectangle> Primary()
         {
@@ -37,7 +52,7 @@ namespace Displicare.Rooms
         }
 
         /// <summary>Lays the prompt out for a given scale and work area; tests use this to check every scale.</summary>
-        internal ConfirmForm(string profileName, int seconds, Tuple<float, Rectangle> screen)
+        internal ConfirmForm(string profileName, int seconds, Tuple<float, Rectangle> screen, bool controller = false)
         {
             this.profileName = profileName;
             remaining = seconds;
@@ -81,9 +96,9 @@ namespace Displicare.Rooms
             int buttonWidth = px(170), buttonHeight = px(52), gap = px(16);
             int buttonTop = countdown.Bottom + px(24);
 
-            var back = MakeButton("Go back", buttonFont, Color.FromArgb(46, 33, 48), DialogResult.No);
+            var back = MakeButton(controller ? "Go back · B" : "Go back", buttonFont, Color.FromArgb(46, 33, 48), DialogResult.No);
             back.SetBounds(width - pad - buttonWidth, buttonTop, buttonWidth, buttonHeight);
-            var keep = MakeButton("Keep", buttonFont, Color.FromArgb(232, 86, 74), DialogResult.Yes);
+            var keep = MakeButton(controller ? "Keep · A" : "Keep", buttonFont, Color.FromArgb(232, 86, 74), DialogResult.Yes);
             keep.SetBounds(back.Left - gap - buttonWidth, buttonTop, buttonWidth, buttonHeight);
             Controls.Add(keep);
             Controls.Add(back);
@@ -172,7 +187,7 @@ namespace Displicare.Rooms
         /// Scale for the primary display (the one at 0,0, asked fresh because the layout just changed): its Windows
         /// scaling, or its height relative to 1080 when that is larger, so a 4K TV at 100% still gets a big prompt.
         /// </summary>
-        static float PrimaryScale(out Rectangle work)
+        internal static float PrimaryScale(out Rectangle work)
         {
             work = new Rectangle(0, 0, 1920, 1080);
             IntPtr monitor = MonitorFromPoint(new POINT(), 1 /* MONITOR_DEFAULTTOPRIMARY */);
