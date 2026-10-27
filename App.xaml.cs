@@ -65,7 +65,8 @@ namespace Displicare
                         File.WriteAllLines(logPath, recent);
                     }
 
-                    File.AppendAllText(logPath, DateTime.Now.ToString("HH:mm:ss.fff") + " - " + msg + Environment.NewLine);
+                    // With the date: the log spans days, and bug reports often come a day after the fact
+                    File.AppendAllText(logPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " - " + msg + Environment.NewLine);
                 }
             }
             catch { }

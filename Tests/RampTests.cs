@@ -304,6 +304,19 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void OnlyShellEventsThatCanResetGammaReassert()
+        {
+            Assert.True(MainWindow.IsGammaRelevantShellEvent(4), "window activated (Alt+Tab)");
+            Assert.True(MainWindow.IsGammaRelevantShellEvent(0x8004), "rude app activated (fullscreen game)");
+            Assert.True(MainWindow.IsGammaRelevantShellEvent(1), "window created");
+            Assert.True(MainWindow.IsGammaRelevantShellEvent(16), "monitor changed");
+            Assert.True(!MainWindow.IsGammaRelevantShellEvent(6), "title redraw");
+            Assert.True(!MainWindow.IsGammaRelevantShellEvent(0x8006), "taskbar flash");
+            Assert.True(!MainWindow.IsGammaRelevantShellEvent(12), "media key");
+            Assert.True(!MainWindow.IsGammaRelevantShellEvent(8), "keyboard language");
+        }
+
+        [Test]
         public static void KelvinToRgbShape()
         {
             double r, g, b;

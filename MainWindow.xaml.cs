@@ -43,7 +43,6 @@ namespace Displicare
 
         private WinEventDelegate _foregroundWinEventDelegate;
         private IntPtr _hForegroundWinEventHook = IntPtr.Zero;
-        private System.Windows.Threading.DispatcherTimer _foregroundReassertTimer;
         private System.Windows.Threading.DispatcherTimer _fastReassertBurstTimer;
         private int _reassertBurstCount = 0;
         private System.Windows.Threading.DispatcherTimer _watchdogTimer;
@@ -377,15 +376,6 @@ namespace Displicare
             };
             bootSyncTimer.Start();
 
-            // Debounced foreground reassert timer (50ms) to counteract Windows DWM Alt-Tab gamma reset
-            _foregroundReassertTimer = new System.Windows.Threading.DispatcherTimer();
-            _foregroundReassertTimer.Interval = TimeSpan.FromMilliseconds(50);
-            _foregroundReassertTimer.Tick += (s, ev) =>
-            {
-                _foregroundReassertTimer.Stop();
-                ReassertDisplayState();
-            };
-
             // Install native WinEventHook for foreground window transitions (Alt-Tab, game focus, desktop switch)
             try
             {
@@ -577,7 +567,8 @@ namespace Displicare
                 _engine.ResetGammaRamp(d);
                 if (d.SupportsDdcCi && d.UseHardwareBrightness)
                 {
-                    _engine.ApplyHardwareBrightness(d, 80);
+                    // Queued like slider moves: each DDC/CI write takes tens of ms, too long for the UI thread
+                    _engine.QueueHardwareBrightness(d, 80);
                 }
             }
 
@@ -623,12 +614,6 @@ namespace Displicare
             {
                 _watchdogTimer.Stop();
                 _watchdogTimer = null;
-            }
-
-            if (_foregroundReassertTimer != null)
-            {
-                _foregroundReassertTimer.Stop();
-                _foregroundReassertTimer = null;
             }
 
             if (_fastReassertBurstTimer != null)

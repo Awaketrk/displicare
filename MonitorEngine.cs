@@ -424,10 +424,6 @@ namespace Displicare
             if (waiting.Count > 0) ThreadPool.QueueUserWorkItem(_ => RetryDdc(waiting, generation));
         }
 
-        /// <summary>
-        /// Virtual display drivers (SudoVDA for Steam Link and Apollo, Parsec, Virtual Display Driver) are software devices
-        /// with a ROOT\ device ID, e.g. root\sudomaker\sudovda; graphics cards are PCI\VEN_...
-        /// </summary>
         /// <summary>The monitor model from its device id: MONITOR\TCL9653\{4d36e96e-...}\0013 gives TCL9653.</summary>
         internal static string MonitorKeyFromId(string deviceId)
         {
@@ -437,6 +433,10 @@ namespace Displicare
                 ? parts[1].ToUpperInvariant() : null;
         }
 
+        /// <summary>
+        /// Virtual display drivers (SudoVDA for Steam Link and Apollo, Parsec, Virtual Display Driver) are software devices
+        /// with a ROOT\ device ID, e.g. root\sudomaker\sudovda; graphics cards are PCI\VEN_...
+        /// </summary>
         internal static bool IsVirtualAdapter(string deviceId)
         {
             return deviceId != null && deviceId.StartsWith(@"ROOT\", StringComparison.OrdinalIgnoreCase);
@@ -580,14 +580,7 @@ namespace Displicare
             }
 
             // Fallback to pure clean linear reference ramp (prevents capturing pre-tinted red ramps)
-            disp.OriginalRamp = new ushort[768];
-            for (int i = 0; i < 256; i++)
-            {
-                ushort val = (ushort)((i * 65535) / 255);
-                disp.OriginalRamp[i]       = val;
-                disp.OriginalRamp[256 + i] = val;
-                disp.OriginalRamp[512 + i] = val;
-            }
+            disp.OriginalRamp = LinearRamp();
         }
 
         public void ApplyBrightness(DisplayInfo disp, int brightness)
@@ -735,6 +728,16 @@ namespace Displicare
                 return;
             }
 
+            // Also re-initialize a corrupted baseline to clean linear so it cannot stay that way
+            WriteBaseline(disp, true);
+        }
+
+        /// <summary>
+        /// Writes the captured baseline ramp (or linear, if it's unusable) and forgets the applied one. With
+        /// <paramref name="repairBaseline"/>, an unusable baseline is replaced by linear for good.
+        /// </summary>
+        private void WriteBaseline(DisplayInfo disp, bool repairBaseline)
+        {
             IntPtr hdc = IntPtr.Zero;
             try
             {
@@ -743,24 +746,10 @@ namespace Displicare
 
                 lock (_gammaRampLock)
                 {
-                    if (disp.OriginalRamp != null && IsNeutralBaseline(disp.OriginalRamp))
-                    {
-                        Array.Copy(disp.OriginalRamp, _gammaBuffer, 768);
-                    }
-                    else
-                    {
-                        for (int i = 0; i < 256; i++)
-                        {
-                            ushort val = (ushort)((i * 65535) / 255);
-                            _gammaBuffer[i]       = val;
-                            _gammaBuffer[256 + i] = val;
-                            _gammaBuffer[512 + i] = val;
-                        }
-
-                        // Also re-initialize disp.OriginalRamp to clean linear so it cannot stay corrupted
-                        disp.OriginalRamp = (ushort[])_gammaBuffer.Clone();
-                    }
-
+                    bool usable = disp.OriginalRamp != null && IsNeutralBaseline(disp.OriginalRamp);
+                    ushort[] ramp = usable ? disp.OriginalRamp : LinearRamp();
+                    if (!usable && repairBaseline) disp.OriginalRamp = ramp;
+                    Array.Copy(ramp, _gammaBuffer, 768);
                     SetDeviceGammaRamp(hdc, _gammaBuffer);
                     disp.LastAppliedRamp = null;
                     ClearRampState(disp);
@@ -1016,15 +1005,7 @@ namespace Displicare
                 }
             }
             // Linear identity, not null: a null baseline would be re-captured from the (custom) ramp on the next refresh
-            var linear = new ushort[768];
-            for (int i = 0; i < 256; i++)
-            {
-                ushort val = (ushort)((i * 65535) / 255);
-                linear[i] = val;
-                linear[256 + i] = val;
-                linear[512 + i] = val;
-            }
-            disp.OriginalRamp = linear;
+            disp.OriginalRamp = LinearRamp();
         }
 
         public void ApplyColorAndGamma(DisplayInfo disp)
@@ -1119,42 +1100,7 @@ namespace Displicare
         public void RestoreOriginalGamma(DisplayInfo disp)
         {
             if (disp == null) return;
-
-            IntPtr hdc = IntPtr.Zero;
-            try
-            {
-                hdc = CreateDC(null, disp.DeviceName, null, IntPtr.Zero);
-                if (hdc == IntPtr.Zero) return;
-
-                lock (_gammaRampLock)
-                {
-                    if (disp.OriginalRamp != null && IsNeutralBaseline(disp.OriginalRamp))
-                    {
-                        Array.Copy(disp.OriginalRamp, _gammaBuffer, 768);
-                    }
-                    else
-                    {
-                        for (int i = 0; i < 256; i++)
-                        {
-                            ushort val = (ushort)((i * 65535) / 255);
-                            _gammaBuffer[i]       = val;
-                            _gammaBuffer[256 + i] = val;
-                            _gammaBuffer[512 + i] = val;
-                        }
-                    }
-                    SetDeviceGammaRamp(hdc, _gammaBuffer);
-                    disp.LastAppliedRamp = null;
-                    ClearRampState(disp);
-                }
-            }
-            catch { }
-            finally
-            {
-                if (hdc != IntPtr.Zero)
-                {
-                    DeleteDC(hdc);
-                }
-            }
+            WriteBaseline(disp, false);
         }
 
         public bool HasCustomGammaOrColor(DisplayInfo disp)

@@ -27,8 +27,10 @@ namespace Displicare
             }
             else if (_shellHookMsg != 0 && (uint)msg == _shellHookMsg)
             {
-                // Any shell event (HSHELL_TASKMAN, HSHELL_WINDOWACTIVATED, HSHELL_REDRAW, etc.)
-                TriggerFastReassert();
+                // Shell events that can come with a gamma reset (activation, new windows, fullscreen, monitor moves).
+                // Not title redraws, flashes, media keys or language switches: some apps redraw their title many times
+                // a second, and each event costs a burst of six ramp read-backs. The watchdog still covers those.
+                if (IsGammaRelevantShellEvent(wParam.ToInt64())) TriggerFastReassert();
             }
             else if (msg == WM_QUERYENDSESSION)
             {
@@ -54,6 +56,14 @@ namespace Displicare
                 handled = true;
             }
             return IntPtr.Zero;
+        }
+
+        private const long HSHELL_REDRAW = 6, HSHELL_LANGUAGE = 8, HSHELL_APPCOMMAND = 12, HSHELL_HIGHBIT = 0x8000;
+
+        internal static bool IsGammaRelevantShellEvent(long code)
+        {
+            code &= ~HSHELL_HIGHBIT; // HSHELL_FLASH = HSHELL_REDRAW | HSHELL_HIGHBIT, HSHELL_RUDEAPPACTIVATED likewise
+            return code != HSHELL_REDRAW && code != HSHELL_LANGUAGE && code != HSHELL_APPCOMMAND;
         }
 
         private bool IsStartMenuWindow(IntPtr hwnd)

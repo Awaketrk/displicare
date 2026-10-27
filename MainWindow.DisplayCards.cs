@@ -92,9 +92,9 @@ namespace Displicare
             StackMonitorRows.Children.Clear();
             _monitorBadgeTexts.Clear();
 
-            for (int i = 0; i < _engine.Displays.Count; i++)
+            for (int i = 0; i < displays.Count; i++)
             {
-                var d = _engine.Displays[i];
+                var d = displays[i];
 
                 var border = new Border
                 {

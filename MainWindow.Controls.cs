@@ -95,19 +95,14 @@ namespace Displicare
             double gamma = SliderGamma.Value;
 
             bool syncAll = (ChkSyncDisplays.IsChecked == true) || (CmbDisplaySelect.SelectedIndex == 0);
-            var targets = new List<DisplayInfo>();
+            var targets = _engine.Displays; // a fresh copy
 
-            if (syncAll)
-            {
-                targets.AddRange(_engine.Displays);
-            }
-            else
+            if (!syncAll)
             {
                 int idx = CmbDisplaySelect.SelectedIndex - 1;
-                if (idx >= 0 && idx < _engine.Displays.Count)
-                {
-                    targets.Add(_engine.Displays[idx]);
-                }
+                var selected = idx >= 0 && idx < targets.Count ? targets[idx] : null;
+                targets.Clear();
+                if (selected != null) targets.Add(selected);
             }
 
             foreach (var d in targets)
@@ -279,9 +274,10 @@ namespace Displicare
                     ChkSyncDisplays.IsChecked = false;
                 }
                 int monIdx = idx - 1;
-                if (monIdx >= 0 && monIdx < _engine.Displays.Count)
+                var displays = _engine.Displays;
+                if (monIdx >= 0 && monIdx < displays.Count)
                 {
-                    var d = _engine.Displays[monIdx];
+                    var d = displays[monIdx];
                     string modeLabel = d.SupportsDdcCi ? "DDC/CI" : "GAMMA";
                     string resLabel = d.ResolutionWidth + "×" + d.ResolutionHeight;
                     TxtHardwareBadge.Text = modeLabel + " • " + resLabel;
