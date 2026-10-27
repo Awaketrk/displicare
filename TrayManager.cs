@@ -29,6 +29,10 @@ namespace Displicare
         /// <summary>A room picked from the tray's Rooms submenu (its key).</summary>
         public event Action<string> OnRoomSelected;
         public event Action OnRoomsWindowRequested;
+        /// <summary>A wheel notch over the tray icon: +1 up, -1 down.</summary>
+        public event Action<int> OnBrightnessWheel;
+
+        private TrayWheel _wheel;
 
         private ToolStripMenuItem _roomsMenu;
         private ToolStripSeparator _roomsSeparator;
@@ -75,6 +79,14 @@ namespace Displicare
                     ToggleFlyout();
                 }
             };
+
+            // Mouse wheel over the icon changes brightness
+            try
+            {
+                _wheel = new TrayWheel(_notifyIcon);
+                _wheel.Notch += step => { if (OnBrightnessWheel != null) OnBrightnessWheel(step); };
+            }
+            catch (Exception ex) { App.Log("Tray wheel unavailable: " + ex.Message); }
 
             // Build Context Menu
             BuildContextMenu();
@@ -546,6 +558,12 @@ namespace Displicare
 
         public void Dispose()
         {
+            if (_wheel != null)
+            {
+                _wheel.Dispose();
+                _wheel = null;
+            }
+
             if (_notifyIcon != null)
             {
                 try

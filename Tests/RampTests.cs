@@ -317,6 +317,30 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void BrightnessStepsToTheNextMultiple()
+        {
+            Assert.Equal(65, MainWindow.NextLevel(63, 5, 1), "63 up to 65");
+            Assert.Equal(60, MainWindow.NextLevel(63, 5, -1), "63 down to 60");
+            Assert.Equal(65, MainWindow.NextLevel(60, 5, 1), "60 up to 65");
+            Assert.Equal(55, MainWindow.NextLevel(60, 5, -1), "60 down to 55");
+            Assert.Equal(100, MainWindow.NextLevel(97, 10, 1), "capped at 100");
+            Assert.Equal(100, MainWindow.NextLevel(100, 5, 1), "stays at 100");
+            Assert.Equal(0, MainWindow.NextLevel(3, 10, -1), "down to 0");
+            Assert.Equal(0, MainWindow.NextLevel(0, 5, -1), "stays at 0");
+        }
+
+        [Test]
+        public static void BrightnessHotkeysParse()
+        {
+            uint mods, key;
+            Assert.True(Displicare.Rooms.Hotkey.TryParse(MainWindow.BrightnessUpHotkey, out mods, out key), "up hotkey parses");
+            Assert.Equal((uint)System.Windows.Forms.Keys.Up, key, "Up arrow");
+            Assert.True(Displicare.Rooms.Hotkey.TryParse(MainWindow.BrightnessDownHotkey, out mods, out key), "down hotkey parses");
+            Assert.Equal((uint)System.Windows.Forms.Keys.Down, key, "Down arrow");
+            Assert.True(!new AppSettings().BrightnessHotkeys, "off by default");
+        }
+
+        [Test]
         public static void KelvinToRgbShape()
         {
             double r, g, b;

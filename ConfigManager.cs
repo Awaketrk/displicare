@@ -170,6 +170,7 @@ namespace Displicare
             AutoLocation = true;
             DisplayProfiles = new List<DisplayProfile>();
             CustomPresets = new List<CustomPreset>();
+            BrightnessHotkeys = false;
             RoomsEnabled = false;
             Rooms = new List<Room>();
             RoomHomeKey = "";
@@ -188,6 +189,10 @@ namespace Displicare
         /// </summary>
         [DataMember]
         public bool HardwareBrightnessRestored { get; set; }
+
+        /// <summary>Ctrl+Alt+Up / Down change brightness from anywhere. Off by default (other apps may use them).</summary>
+        [DataMember]
+        public bool BrightnessHotkeys { get; set; }
 
         /// <summary>Room switching (one display at a time for PCs wired to TVs in other rooms). Off by default.</summary>
         [DataMember]

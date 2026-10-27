@@ -27,9 +27,11 @@ namespace Displicare.Rooms
         static RoomOverlay current;
 
         readonly float scale;
-        readonly string title;
-        readonly string detail;
+        string title;
+        string detail;
         readonly List<PickerItem> items;
+        /// <summary>0-100 for a level note (brightness), -1 otherwise.</summary>
+        int level = -1;
         readonly Timer timer = new Timer();
         int selected;
         int remainingMs;
@@ -45,6 +47,27 @@ namespace Displicare.Rooms
         public static void ShowNote(string title, string detail, int milliseconds)
         {
             Replace(new RoomOverlay(title, detail, null, 0, milliseconds));
+        }
+
+        /// <summary>
+        /// A small level bar ("Brightness 60%", detail e.g. "All displays") above the taskbar on the primary screen, like
+        /// Windows' own volume and brightness notes. While one is showing, it's updated in place, so turning the wheel
+        /// doesn't flicker; it closes <paramref name="milliseconds"/> after the last change.
+        /// </summary>
+        public static void ShowLevel(string title, string detail, int percent, int milliseconds)
+        {
+            percent = Math.Max(0, Math.Min(100, percent));
+            if (current != null && current.level >= 0)
+            {
+                current.title = title;
+                current.detail = detail;
+                current.level = percent;
+                current.remainingMs = milliseconds;
+                current.Invalidate();
+                return;
+            }
+            var note = new RoomOverlay(title, detail, null, 0, milliseconds, percent);
+            Replace(note);
         }
 
         /// <summary>The room picker in the middle of the primary screen; closes itself after <paramref name="milliseconds"/>.</summary>
@@ -87,11 +110,12 @@ namespace Displicare.Rooms
             next.Show();
         }
 
-        RoomOverlay(string title, string detail, List<PickerItem> items, int selected, int milliseconds)
+        RoomOverlay(string title, string detail, List<PickerItem> items, int selected, int milliseconds, int level = -1)
         {
             this.title = title;
             this.detail = detail;
             this.items = items;
+            this.level = level;
             this.selected = items != null && items.Count > 0 ? Math.Max(0, Math.Min(selected, items.Count - 1)) : 0;
             remainingMs = milliseconds;
 
@@ -109,8 +133,12 @@ namespace Displicare.Rooms
             DoubleBuffered = true;
             Opacity = 0.96; // also makes it a layered window, which clicks go through (see CreateParams)
 
-            var size = items != null ? new Size(Px(520), Px(104 + 64 * items.Count)) : new Size(Px(600), Px(detail != null ? 112 : 76));
-            var location = items != null
+            if (level >= 0) scale = s > 0 ? s : 1f; // desk-sized: it's seen up close, not from the couch
+            var size = level >= 0 ? new Size(Px(320), Px(78))
+                : items != null ? new Size(Px(520), Px(104 + 64 * items.Count)) : new Size(Px(600), Px(detail != null ? 112 : 76));
+            var location = level >= 0
+                ? new Point(work.Left + (work.Width - size.Width) / 2, work.Bottom - size.Height - Px(24))
+                : items != null
                 ? new Point(work.Left + (work.Width - size.Width) / 2, work.Top + (work.Height - size.Height) / 2)
                 : new Point(work.Left + (work.Width - size.Width) / 2, work.Top + work.Height / 16);
             bounds = new Rectangle(location, size);
@@ -166,6 +194,12 @@ namespace Displicare.Rooms
             // The Displicare sunset line along the top
             using (var line = new SolidBrush(Accent)) g.FillRectangle(line, Px(24), 0, ClientSize.Width - Px(48), Math.Max(2, Px(3)));
 
+            if (level >= 0)
+            {
+                PaintLevel(g);
+                return;
+            }
+
             int pad = Px(24);
             using (var titleFont = new Font("Segoe UI Semibold", Px(items != null ? 22 : 26), GraphicsUnit.Pixel))
             using (var bodyFont = new Font("Segoe UI", Px(17), GraphicsUnit.Pixel))
@@ -200,6 +234,26 @@ namespace Displicare.Rooms
                     new Rectangle(pad, ClientSize.Height - Px(36), ClientSize.Width - 2 * pad, Px(26)), Muted,
                     flags | TextFormatFlags.HorizontalCenter);
             }
+        }
+
+        /// <summary>"☀ Brightness" and the percentage on one line, the detail under it, and a bar along the bottom.</summary>
+        void PaintLevel(Graphics g)
+        {
+            int pad = Px(18);
+            var flags = TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine;
+            using (var titleFont = new Font("Segoe UI Semibold", Px(16), GraphicsUnit.Pixel))
+            using (var bodyFont = new Font("Segoe UI", Px(12), GraphicsUnit.Pixel))
+            {
+                var line = new Rectangle(pad, Px(14), ClientSize.Width - 2 * pad, Px(22));
+                TextRenderer.DrawText(g, title, titleFont, line, Color.White, flags | TextFormatFlags.Left);
+                TextRenderer.DrawText(g, level + "%", titleFont, line, Color.White, flags | TextFormatFlags.Right);
+                if (!string.IsNullOrEmpty(detail))
+                    TextRenderer.DrawText(g, detail, bodyFont, new Rectangle(pad, Px(36), ClientSize.Width - 2 * pad, Px(16)), Muted, flags);
+            }
+            var track = new Rectangle(pad, ClientSize.Height - Px(18), ClientSize.Width - 2 * pad, Math.Max(4, Px(5)));
+            using (var fill = new SolidBrush(Row)) g.FillRectangle(fill, track);
+            using (var fill = new SolidBrush(Accent))
+                g.FillRectangle(fill, track.X, track.Y, track.Width * level / 100, track.Height);
         }
 
         protected override void Dispose(bool disposing)

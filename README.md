@@ -41,6 +41,7 @@ Each release includes `SHA256SUMS.txt` to verify the downloads.
 
 - **Left-click** the tray icon to open the control window; it hides again when you click elsewhere (pin it to keep it open).
 - **Right-click** the tray icon for quick brightness, presets, Solar Sync, start with Windows and Exit.
+- **Scroll** over the tray icon to change brightness in steps of 5%; a small note above the taskbar shows the level. Turn on **Brightness hotkeys** in Displays > General Settings for **Ctrl+Alt+Up / Down** (steps of 10%) from anywhere.
 - The **Displays** tab shows each monitor's capabilities, lets you switch between hardware and software brightness, and has the About card with the version.
 - **Hardware Test…** on the About card checks that your displays accept and keep what Displicare writes (gamma ramp, HDR color filter, DDC/CI backlight) and saves a report next to your settings. If something doesn't work on your monitor, attach that report to an issue. Your screen dims and changes color for a few seconds while it runs; everything is put back afterwards.
 

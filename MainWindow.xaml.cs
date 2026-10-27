@@ -311,6 +311,8 @@ namespace Displicare
             SliderSolarNightK.Value = _settings.SolarNightKelvin;
             UpdateSolarLimitsLabels();
 
+            InitializeBrightnessKeys();
+
             _isUpdatingUi = false;
 
             // Start Solar Circadian Rhythm Timer
@@ -603,6 +605,7 @@ namespace Displicare
             _isExited = true;
 
             ShutdownRooms();
+            ShutdownBrightnessKeys();
 
             if (_solarTimer != null)
             {

@@ -1202,6 +1202,9 @@
                                 <CheckBox x:Name="ChkRunAtStartup" Content="Start Displicare with Windows" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,10" Checked="ChkRunAtStartup_Checked" Unchecked="ChkRunAtStartup_Checked"/>
                                 <CheckBox x:Name="ChkStartMinimized" Content="Start minimized to system tray" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,10" IsChecked="True" Checked="ChkStartMinimized_Checked" Unchecked="ChkStartMinimized_Checked"/>
                                 <CheckBox x:Name="ChkRestoreOnExit" Content="Restore default gamma on app exit" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,10" Checked="ChkRestoreOnExit_Checked" Unchecked="ChkRestoreOnExit_Checked"/>
+                                <CheckBox x:Name="ChkBrightnessHotkeys" Content="Brightness hotkeys" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,2" Checked="ChkBrightnessHotkeys_Checked" Unchecked="ChkBrightnessHotkeys_Checked"/>
+                                <TextBlock Text="Change brightness from anywhere, in steps of 10%. The mouse wheel over the tray icon always works, in steps of 5%."
+                                           FontSize="10.5" Foreground="#B3A3AE" TextWrapping="Wrap" Margin="46,0,0,12" LineHeight="15"/>
                                 <CheckBox x:Name="ChkRoomsEnabled" Content="Room switching" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,2" Checked="ChkRoomsEnabled_Checked" Unchecked="ChkRoomsEnabled_Checked"/>
                                 <TextBlock Text="For a PC wired to TVs or monitors in other rooms: one click (or a hotkey) makes that screen the only one, with its own resolution, HDR and sound. Adds a Rooms tab."
                                            FontSize="10.5" Foreground="#B3A3AE" TextWrapping="Wrap" Margin="46,0,0,12" LineHeight="15"/>

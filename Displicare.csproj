@@ -51,6 +51,10 @@
     <Compile Include="MonitorEngine.cs" />
     <Compile Include="ConfigManager.cs" />
     <Compile Include="TrayManager.cs" />
+    <Compile Include="TrayWheel.cs" />
+    <Compile Include="MainWindow.BrightnessKeys.cs">
+      <DependentUpon>MainWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="SolarEngine.cs" />
     <Compile Include="HdrHelper.cs" />
     <Compile Include="ColorFilterDimmer.cs" />
