@@ -1,4 +1,4 @@
-﻿# Lumina Display - Version Release Catalog
+# Lumina Display - Version Release Catalog
 
 This catalog maintains a permanent history of all official Lumina Display releases. Every released version is preserved in its own dedicated dist/v<Version>/ folder to ensure earlier builds are never lost.
 
@@ -262,3 +262,13 @@ This catalog maintains a permanent history of all official Lumina Display releas
   - **Portable Package**: `Displicare-v2.4.4-Portable.zip` (188.5 KB)
     - SHA256: `F7CBE4417B5F7275DC6A34A72C566718AA990BCA1DB16C9E9DF06358A46F95D9`
 - **Notes**: Taskbar auto-hide is turned off while a stream runs and back on after it, so screens Windows brings back on its own no longer trigger Explorer's "toolbar already hidden" error; after a stream, windows are minimized once the screens and Steam's window are back.
+
+### Version 2.4.5 Release
+- **Release Date**: 2026-10-28 02:37:02
+- **Assembly Version**: 2.4.5.0
+- **Packages in dist/v2.4.5/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.4.5-Setup.exe` (2.12 MB)
+    - SHA256: `C143300E4C21F624E35427D93B46ECBAC25AE244DB992B1E88528623F520FFB7`
+  - **Portable Package**: `Displicare-v2.4.5-Portable.zip` (192.1 KB)
+    - SHA256: `6BBC3131DED5666DECF806F9A4282450D6A7182DED4DAE39E90657907155BEF1`
+- **Notes**: Brightness from the mouse wheel over the tray icon (5% steps) and optional Ctrl+Alt+Up / Down hotkeys (10% steps), with a level bar above the taskbar; fewer gamma checks from shell events; Reset All no longer blocks the window; dated log lines.
