@@ -232,3 +232,13 @@ This catalog maintains a permanent history of all official Lumina Display releas
   - **Portable Package**: `Displicare-v2.4.1-Portable.zip` (187.2 KB)
     - SHA256: `5D2EB388440E06AB7123DF9FC82A9C48C33332AB0B43DFABBE107E8E289F338A`
 - **Notes**: Per-room "Open on switch" choice: nothing, Steam Big Picture or Windows 11's Xbox mode (opened and closed with its Win + F11 shortcut after checking its state); older Big Picture settings carried over. Xbox mode keeps the controller to itself, so View + D-pad can't leave it.
+
+### Version 2.4.2 Release
+- **Release Date**: 2026-10-27 03:52:32
+- **Assembly Version**: 2.4.2.0
+- **Packages in dist/v2.4.2/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.4.2-Setup.exe` (2.11 MB)
+    - SHA256: `50EF1C1BF4710382818635525DAD4BAD60A0BE92590D4D15131229918743E08F`
+  - **Portable Package**: `Displicare-v2.4.2-Portable.zip` (187.6 KB)
+    - SHA256: `6007553EEC58C070EC9E57C7D4EBAF513B57A4AAFDBF86947EDF14106FF569DB`
+- **Notes**: Leaving a Big Picture or Xbox mode room for one without a launcher minimizes every window once Steam's (or the Xbox app's) window is back, so nothing sits still on an OLED.
