@@ -65,7 +65,7 @@ namespace Displicare.Rooms
 
     /// <summary>
     /// Watches Xbox-style controllers (and anything Steam presents as one) through XInput. This is the public, read-only
-    /// API every game and launcher uses: Displicare never hooks, injects or sends input, and never opens a game's process,
+    /// API every game and launcher uses: Displicare never hooks or injects anything, sends no input to games and never opens a game's process,
     /// which is what anti-cheat looks for. It reads the controllers 20 times a second while one is connected and checks
     /// for one every 2 s otherwise. Presses arrive on the UI thread; moves, A and B only while <see cref="Navigating"/>.
     /// </summary>

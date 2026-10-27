@@ -15,6 +15,7 @@ namespace Displicare
         public const string AudioAuto = "auto", AudioKeep = "keep", AudioDevice = "device";
         public const string PadUp = "up", PadRight = "right", PadDown = "down", PadLeft = "left";
         public static readonly string[] PadDirections = { PadUp, PadRight, PadDown, PadLeft };
+        public const string LaunchNone = "none", LaunchBigPicture = "bigpicture", LaunchXbox = "xbox";
 
         public Room()
         {
@@ -63,7 +64,10 @@ namespace Displicare
         /// the TV is still blank): "up", "right", "down", "left", "" for none, null until Displicare has given it one.
         /// </summary>
         [DataMember] public string PadDirection { get; set; }
+        /// <summary>Settings from 2.4.0 and earlier; read once into <see cref="Launcher"/>.</summary>
         [DataMember] public bool OpenBigPicture { get; set; }
+        /// <summary>What opens when switching here (and closes when leaving): none, Steam Big Picture or Xbox mode.</summary>
+        [DataMember] public string Launcher { get; set; }
         /// <summary>Hidden rooms stay out of the tab, the tray and hotkeys (a portable screen you never game on).</summary>
         [DataMember] public bool Hidden { get; set; }
         /// <summary>A switch to this room was kept at least once with these settings, so it no longer asks.</summary>

@@ -224,7 +224,7 @@ namespace Displicare.Rooms
 
         // ---------------------------------------------------------------- Rooms window: settings
 
-        /// <summary>The selected room's settings: name, mode, HDR, sound, hotkey, Big Picture, hide, shortcut.</summary>
+        /// <summary>The selected room's settings: name, mode, HDR, sound, hotkey, controller, launcher, hide, shortcut.</summary>
         public StackPanel RoomSettings(RoomStatus s)
         {
             var room = s.Room;
@@ -379,14 +379,23 @@ namespace Displicare.Rooms
             padRow.ToolTip = "Hold View and press this D-pad direction to switch here, even when you can't see a screen: on the couch with the TV still blank, View + its direction brings the picture to it.";
             host.Children.Add(padRow);
 
-            var bigPicture = Toggle("Open Steam Big Picture when switching here", room.OpenBigPicture);
-            bigPicture.Margin = new Thickness(labelWidth, 4, 0, 10);
-            bigPicture.Click += (o, e) =>
+            var launcher = Combo();
+            launcher.Items.Add(Item("Nothing", Room.LaunchNone));
+            launcher.Items.Add(Item("Steam Big Picture", Room.LaunchBigPicture));
+            launcher.Items.Add(Item("Xbox mode", Room.LaunchXbox));
+            Select(launcher, room.Launcher ?? Room.LaunchNone);
+            launcher.SelectionChanged += (o, e) =>
             {
-                room.OpenBigPicture = bigPicture.IsChecked == true;
+                var sel = launcher.SelectedItem as ComboBoxItem;
+                if (sel == null) return;
+                room.Launcher = (string)sel.Tag;
+                room.OpenBigPicture = room.Launcher == Room.LaunchBigPicture;
                 rooms.RoomEdited(room, false);
             };
-            host.Children.Add(bigPicture);
+            var launcherRow = Row("Open on switch", launcher, labelWidth);
+            launcherRow.ToolTip = "Opens when you switch here and closes when you switch to a room that doesn't use it. Xbox mode is Windows 11's full screen Xbox experience (Settings > Gaming); Displicare turns it on and off with its Win + F11 shortcut. While Xbox mode is open it keeps the controller to itself, so View + D-pad can't switch rooms there: leave it from its menu (Xbox button) and View + D-pad works again. Keyboard hotkeys always work.";
+            launcherRow.Margin = new Thickness(0, 0, 0, 12);
+            host.Children.Add(launcherRow);
 
             var hide = Toggle("Hide this room (not in the tab, tray or hotkeys)", room.Hidden);
             hide.Margin = new Thickness(labelWidth, 0, 0, 16);
@@ -471,7 +480,7 @@ namespace Displicare.Rooms
             }), labelWidth));
 
             stack.Children.Add(OptionToggle("Switch with a controller: hold View + Menu", settings.RoomController,
-                "Opens a room picker on screen: up and down to choose, A to switch, B to close. A and B also answer \"Keep this display layout?\". View + a D-pad direction goes straight to the room on that direction (set per room), even when you can't see a screen. Works with Xbox controllers and anything Steam shows as one. Displicare only reads the controller the way games do: it doesn't hook, inject or send input, so it is safe with anti-cheat.",
+                "Opens a room picker on screen: up and down to choose, A to switch, B to close. A and B also answer \"Keep this display layout?\". View + a D-pad direction goes straight to the room on that direction (set per room), even when you can't see a screen. Works with Xbox controllers and anything Steam shows as one. Displicare only reads the controller the way games do: it doesn't hook anything or send input to games, so it is safe with anti-cheat.",
                 v => settings.RoomController = v));
             stack.Children.Add(OptionToggle("Turn the screens off while streaming", settings.RoomStreamScreensOff,
                 "When Steam Link (or Apollo, Sunshine) streams to a virtual display, the physical screens are switched off, so an OLED isn't left showing a still desktop. They come back as they were when the stream ends, with every window minimized so nothing sits still on screen.",

@@ -493,6 +493,17 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void BigPictureSettingBecomesTheLauncher()
+        {
+            var s = ConfigManager.Parse("{\"Rooms\":[{\"Key\":\"A\",\"OpenBigPicture\":true},{\"Key\":\"B\"},{\"Key\":\"C\",\"Launcher\":\"xbox\"},{\"Key\":\"D\",\"Launcher\":\"psx\"}]}");
+            Assert.Equal(Room.LaunchBigPicture, s.Rooms[0].Launcher, "old Big Picture tick carried over");
+            Assert.Equal(Room.LaunchNone, s.Rooms[1].Launcher, "nothing by default");
+            Assert.Equal(Room.LaunchXbox, s.Rooms[2].Launcher, "Xbox mode kept");
+            Assert.Equal(Room.LaunchNone, s.Rooms[3].Launcher, "unknown becomes nothing");
+            Assert.True(s.Rooms[0].OpenBigPicture && !s.Rooms[2].OpenBigPicture, "old field kept in step for downgrades");
+        }
+
+        [Test]
         public static void SharedControllerDirectionsStayWithTheFirstRoom()
         {
             var s = ConfigManager.Parse("{\"Rooms\":[{\"Key\":\"A\",\"PadDirection\":\"right\"},{\"Key\":\"B\",\"PadDirection\":\"right\"},{\"Key\":\"C\",\"PadDirection\":\"sideways\"}]}");

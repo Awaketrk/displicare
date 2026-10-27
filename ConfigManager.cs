@@ -487,6 +487,9 @@ namespace Displicare
                 if (r.Audio != Room.AudioAuto && r.Audio != Room.AudioKeep && r.Audio != Room.AudioDevice) r.Audio = Room.AudioAuto;
                 if (r.Audio == Room.AudioDevice && string.IsNullOrEmpty(r.AudioId) && string.IsNullOrEmpty(r.AudioName)) r.Audio = Room.AudioAuto;
                 r.Hotkey = string.IsNullOrEmpty(r.Hotkey) ? "" : (Rooms.Hotkey.Normalize(r.Hotkey) ?? "");
+                if (r.Launcher != Room.LaunchNone && r.Launcher != Room.LaunchBigPicture && r.Launcher != Room.LaunchXbox)
+                    r.Launcher = r.OpenBigPicture ? Room.LaunchBigPicture : Room.LaunchNone;
+                r.OpenBigPicture = r.Launcher == Room.LaunchBigPicture; // so 2.4.0 still opens it after a downgrade
                 if (r.KnownModes == null) r.KnownModes = new List<string>();
                 r.KnownModes.RemoveAll(m => m == null);
                 if (r.KnownModes.Count > 64) r.KnownModes.RemoveRange(64, r.KnownModes.Count - 64);

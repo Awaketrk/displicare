@@ -676,8 +676,7 @@ namespace Displicare.Rooms
                     room.Confirmed = true;
                     save();
                 }
-                if (room.OpenBigPicture) OpenUrl("steam://open/bigpicture");
-                else if (leaving != null && leaving != room && leaving.OpenBigPicture) OpenUrl("steam://close/bigpicture");
+                StartLauncher(room, leaving);
                 if (result.Warnings.Count > 0) RaiseNotify("Switched to " + room.Name, string.Join("\n", result.Warnings.ToArray()), true);
                 if (settings.RoomShowOverlay) RoomOverlay.ShowNote(room.Name, SwitchNote(room), NoteMs);
             }
@@ -763,6 +762,33 @@ namespace Displicare.Rooms
             profile.Name = room.Name;
             profile.Displays.Add(display);
             return profile;
+        }
+
+        /// <summary>
+        /// Opens the room's launcher (Steam Big Picture or Xbox mode) and closes the one the room left behind used, unless
+        /// both rooms use the same. Xbox mode waits for Windows to confirm the change, so it runs off the UI thread.
+        /// </summary>
+        void StartLauncher(Room room, Room leaving)
+        {
+            string open = room.Launcher ?? Room.LaunchNone;
+            string close = leaving != null && leaving != room ? leaving.Launcher ?? Room.LaunchNone : Room.LaunchNone;
+            if (close == open) close = Room.LaunchNone;
+
+            if (close == Room.LaunchBigPicture) OpenUrl("steam://close/bigpicture");
+            if (open == Room.LaunchBigPicture) OpenUrl("steam://open/bigpicture");
+            if (open == Room.LaunchXbox || close == Room.LaunchXbox)
+            {
+                bool on = open == Room.LaunchXbox;
+                string name = room.Name;
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    if (XboxMode.Set(on) || !on) return;
+                    dispatcher.BeginInvoke((Action)delegate
+                    {
+                        RaiseNotify("Xbox mode didn't open", "Switched to " + name + ", but Windows didn't start Xbox mode. It needs Windows 11 with Xbox mode (Settings > Gaming).", true);
+                    });
+                });
+            }
         }
 
         static void OpenUrl(string url)
