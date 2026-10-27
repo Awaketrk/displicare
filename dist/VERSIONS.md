@@ -242,3 +242,13 @@ This catalog maintains a permanent history of all official Lumina Display releas
   - **Portable Package**: `Displicare-v2.4.2-Portable.zip` (187.6 KB)
     - SHA256: `6007553EEC58C070EC9E57C7D4EBAF513B57A4AAFDBF86947EDF14106FF569DB`
 - **Notes**: Leaving a Big Picture or Xbox mode room for one without a launcher minimizes every window once Steam's (or the Xbox app's) window is back, so nothing sits still on an OLED.
+
+### Version 2.4.3 Release
+- **Release Date**: 2026-10-27 04:24:18
+- **Assembly Version**: 2.4.3.0
+- **Packages in dist/v2.4.3/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.4.3-Setup.exe` (2.11 MB)
+    - SHA256: `806158F8CE2452822874081D541D90F9F039AE52C5618FF46B4210F06DA54B61`
+  - **Portable Package**: `Displicare-v2.4.3-Portable.zip` (188.3 KB)
+    - SHA256: `B44CA7AB73E928B476FF6CC20E3577EB96E5999FAD492AF7A4D91BACA1BAE0E7`
+- **Notes**: Screens keep their own name and calibration when room switching moves them between graphics card outputs: the active monitor on each output is used, named from its EDID and keyed by model; saved calibrations are matched by model, then name, and re-applied after display changes.
