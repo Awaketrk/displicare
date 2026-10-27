@@ -222,3 +222,13 @@ This catalog maintains a permanent history of all official Lumina Display releas
   - **Portable Package**: `Displicare-v2.4.0-Portable.zip` (186.0 KB)
     - SHA256: `FA0D431CC507AEAA71A97ED74E246D207BB94591068793D47D2463A8E655A56E`
 - **Notes**: Controller room switching (View + a D-pad direction goes straight to a room, View + Menu opens a picker, A/B answer the keep prompt; XInput only, safe with anti-cheat); physical screens switched off while a stream uses a virtual display and restored afterwards with all windows minimized; virtual displays recognised by their software adapter and kept out of brightness and color; a note on screen after each switch; taskbar auto-hide kept through layout changes; tray window no longer shrinks after visiting a screen with other scaling.
+
+### Version 2.4.1 Release
+- **Release Date**: 2026-10-27 03:39:09
+- **Assembly Version**: 2.4.1.0
+- **Packages in dist/v2.4.1/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.4.1-Setup.exe` (2.11 MB)
+    - SHA256: `EED671D95AF1A6438E078FD2D513FB4D82F8B9B9467F75217A2B60ADD46882DD`
+  - **Portable Package**: `Displicare-v2.4.1-Portable.zip` (187.2 KB)
+    - SHA256: `5D2EB388440E06AB7123DF9FC82A9C48C33332AB0B43DFABBE107E8E289F338A`
+- **Notes**: Per-room "Open on switch" choice: nothing, Steam Big Picture or Windows 11's Xbox mode (opened and closed with its Win + F11 shortcut after checking its state); older Big Picture settings carried over. Xbox mode keeps the controller to itself, so View + D-pad can't leave it.
