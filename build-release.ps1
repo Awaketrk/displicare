@@ -7,7 +7,7 @@
     installer, generates SHA256 checksums, and safely archives the release in dist/v<Version>/
     so earlier versions are permanently preserved.
 .PARAMETER Version
-    The version tag to build (e.g. "2.0.0").
+    The version tag to build (e.g. "2.0.0", or "2.4.6-test.1" for a test build).
 .PARAMETER Force
     Overwrites an existing version archive if it already exists.
 .EXAMPLE
@@ -45,6 +45,15 @@ if ([string]::IsNullOrWhiteSpace($cleanVersion)) {
     exit 1
 }
 
+# A pre-release such as 2.4.6-test.1: the numbers go into the assembly version, the whole text into
+# the file names and the version the app shows
+$label = ""
+$dash = $cleanVersion.IndexOf('-')
+if ($dash -gt 0) {
+    $label = $cleanVersion.Substring($dash)
+    $cleanVersion = $cleanVersion.Substring(0, $dash)
+}
+
 # Determine display version and 4-part assembly version
 $parts = $cleanVersion.Split('.')
 $major = if ($parts.Length -gt 0) { $parts[0] } else { "2" }
@@ -53,7 +62,7 @@ $build = if ($parts.Length -gt 2) { $parts[2] } else { "0" }
 $revision = if ($parts.Length -gt 3) { $parts[3] } else { "0" }
 
 $assemblyVer = "$major.$minor.$build.$revision"
-$displayVer = if ($parts.Length -le 2) { "$major.$minor" } else { "$major.$minor.$build" }
+$displayVer = $(if ($parts.Length -le 2) { "$major.$minor" } else { "$major.$minor.$build" }) + $label
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "   Displicare Release Builder" -ForegroundColor Cyan

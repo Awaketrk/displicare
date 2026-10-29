@@ -74,5 +74,15 @@ namespace Displicare
         [DataMember] public bool Confirmed { get; set; }
         /// <summary>Modes Windows offered while this room was active ("3840x2160@144"), for the drop-downs.</summary>
         [DataMember] public List<string> KnownModes { get; set; }
+        /// <summary>
+        /// Other screens (their room keys) turned on next to this one when switching here; this screen stays the main
+        /// one. Null until chosen: the home room picks up the screens next to it the first time you leave the desk.
+        /// </summary>
+        [DataMember] public List<string> AlsoOn { get; set; }
+        /// <summary>
+        /// How this room's screens were last arranged with all of them on (positions, exact modes, HDR), learned from
+        /// Windows; null until then. Only used while <see cref="AlsoOn"/> still names the same screens.
+        /// </summary>
+        [DataMember] internal global::Displicare.Rooms.Profile Layout { get; set; }
     }
 }

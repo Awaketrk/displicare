@@ -175,6 +175,7 @@ namespace Displicare.Rooms
             if (!string.IsNullOrEmpty(s.Room.DisplayName) && s.Room.DisplayName != s.Room.Name) parts.Add(s.Room.DisplayName);
             if (!string.IsNullOrEmpty(s.Connection)) parts.Add(s.Connection);
             parts.Add(Summary(s.Room));
+            if (!string.IsNullOrEmpty(s.AlsoOnNames)) parts.Add("with " + s.AlsoOnNames);
             if (!string.IsNullOrEmpty(s.Room.Hotkey)) parts.Add(s.Room.Hotkey);
             string pad = RoomManager.PadLabel(s.Room.PadDirection);
             if (pad != null && controller) parts.Add(pad);
@@ -321,6 +322,32 @@ namespace Displicare.Rooms
                 rooms.RoomEdited(room, false);
             };
             host.Children.Add(Row("HDR", hdr, labelWidth));
+
+            // Other screens to turn on next to this one: any combination
+            var others = new StackPanel();
+            foreach (var other in rooms.Settings.Rooms)
+            {
+                if (other == room) continue;
+                var peer = other;
+                bool on = room.AlsoOn != null && room.AlsoOn.Exists(k => string.Equals(k, peer.Key, StringComparison.OrdinalIgnoreCase));
+                var tick = Toggle(peer.Name, on);
+                tick.Margin = new Thickness(0, 2, 0, 2);
+                tick.Click += (sender, e) =>
+                {
+                    if (room.AlsoOn == null) room.AlsoOn = new List<string>();
+                    room.AlsoOn.RemoveAll(k => string.Equals(k, peer.Key, StringComparison.OrdinalIgnoreCase));
+                    if (tick.IsChecked == true && room.AlsoOn.Count < ConfigManager.MaxAlsoOn) room.AlsoOn.Add(peer.Key);
+                    tick.IsChecked = room.AlsoOn.Contains(peer.Key);
+                    rooms.RoomEdited(room, true); // a new set of screens asks to keep it again
+                };
+                others.Children.Add(tick);
+            }
+            if (others.Children.Count > 0)
+            {
+                var alsoRow = Row("Also turn on", others, labelWidth);
+                alsoRow.ToolTip = "Screens that turn on together with this one when you switch here, in any combination. This screen stays the main one. Arrange them once in Windows Settings > Display with all of them on: Displicare remembers where each one goes, its resolution and HDR. Screens that aren't connected are left out.";
+                host.Children.Add(alsoRow);
+            }
 
             var sound = Combo();
             sound.Items.Add(Item("This screen's speakers", Room.AudioAuto));

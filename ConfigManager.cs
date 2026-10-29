@@ -493,6 +493,8 @@ namespace Displicare
 
         internal const int MaxRooms = 32;
         internal const int MaxRoomNameLength = 40;
+        /// <summary>Screens a room can turn on next to its own.</summary>
+        internal const int MaxAlsoOn = 8;
 
         private static void SanitizeRooms(AppSettings settings)
         {
@@ -530,6 +532,14 @@ namespace Displicare
                 if (r.KnownModes == null) r.KnownModes = new List<string>();
                 r.KnownModes.RemoveAll(m => m == null);
                 if (r.KnownModes.Count > 64) r.KnownModes.RemoveRange(64, r.KnownModes.Count - 64);
+                if (r.AlsoOn != null)
+                {
+                    var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    seenKeys.Add(r.Key);
+                    r.AlsoOn.RemoveAll(k => string.IsNullOrWhiteSpace(k) || !seenKeys.Add(k));
+                    if (r.AlsoOn.Count > MaxAlsoOn) r.AlsoOn.RemoveRange(MaxAlsoOn, r.AlsoOn.Count - MaxAlsoOn);
+                }
+                if (!Rooms.RoomManager.UsableLayout(r.Layout)) r.Layout = null;
             }
         }
 
