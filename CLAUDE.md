@@ -23,6 +23,7 @@ Building the test project also builds the app (`bin\Release\Displicare.exe`). Al
 - Between releases, `AssemblyInformationalVersion` in `Properties/AssemblyInfo.cs` ends in `-test` (e.g. `2.1.2-test`) so the About card shows test builds. Bump it right after each release.
 - Release = tag the tested commit and push the tag (`git tag vX.Y.Z`, `git push origin vX.Y.Z`). GitHub Actions runs the tests, runs `build-release.ps1` and publishes the GitHub Release; it never overwrites an existing release. A manual run of the Build workflow packages without publishing.
 - After a release: replace the auto-generated release notes with a written summary, add the entry to `dist/VERSIONS.md` (CI only updates it on the runner) and bump the `-test` version.
+- **Nightly** = tag any commit (a branch too) `vX.Y.Z-nightly.N` and push the tag: the same workflow publishes it as a GitHub pre-release ("Latest" stays on the real release), with the full text as the app's version. Don't add nightlies to `dist/VERSIONS.md`.
 - Hand test builds over as a portable folder (with `portable.dat`) under `dist/test-build-*`, which git ignores.
 
 ## Testing on real hardware (important)
