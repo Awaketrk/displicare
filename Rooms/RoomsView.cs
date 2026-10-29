@@ -175,6 +175,7 @@ namespace Displicare.Rooms
             if (!string.IsNullOrEmpty(s.Room.DisplayName) && s.Room.DisplayName != s.Room.Name) parts.Add(s.Room.DisplayName);
             if (!string.IsNullOrEmpty(s.Connection)) parts.Add(s.Connection);
             parts.Add(Summary(s.Room));
+            if (!string.IsNullOrEmpty(s.AlsoOnNames)) parts.Add("with " + s.AlsoOnNames);
             if (!string.IsNullOrEmpty(s.Room.Hotkey)) parts.Add(s.Room.Hotkey);
             string pad = RoomManager.PadLabel(s.Room.PadDirection);
             if (pad != null && controller) parts.Add(pad);
@@ -321,6 +322,32 @@ namespace Displicare.Rooms
                 rooms.RoomEdited(room, false);
             };
             host.Children.Add(Row("HDR", hdr, labelWidth));
+
+            // Other screens to turn on next to this one: any combination
+            var others = new StackPanel();
+            foreach (var other in rooms.Settings.Rooms)
+            {
+                if (other == room) continue;
+                var peer = other;
+                bool on = room.AlsoOn != null && room.AlsoOn.Exists(k => string.Equals(k, peer.Key, StringComparison.OrdinalIgnoreCase));
+                var tick = Toggle(peer.Name, on);
+                tick.Margin = new Thickness(0, 2, 0, 2);
+                tick.Click += (sender, e) =>
+                {
+                    if (room.AlsoOn == null) room.AlsoOn = new List<string>();
+                    room.AlsoOn.RemoveAll(k => string.Equals(k, peer.Key, StringComparison.OrdinalIgnoreCase));
+                    if (tick.IsChecked == true && room.AlsoOn.Count < ConfigManager.MaxAlsoOn) room.AlsoOn.Add(peer.Key);
+                    tick.IsChecked = room.AlsoOn.Contains(peer.Key);
+                    rooms.RoomEdited(room, true); // a new set of screens asks to keep it again
+                };
+                others.Children.Add(tick);
+            }
+            if (others.Children.Count > 0)
+            {
+                var alsoRow = Row("Also turn on", others, labelWidth);
+                alsoRow.ToolTip = "Screens that turn on together with this one when you switch here, in any combination. This screen stays the main one. Arrange them once in Windows Settings > Display with all of them on: Displicare remembers where each one goes, its resolution and HDR. Screens that aren't connected are left out.";
+                host.Children.Add(alsoRow);
+            }
 
             var sound = Combo();
             sound.Items.Add(Item("This screen's speakers", Room.AudioAuto));
@@ -478,9 +505,6 @@ namespace Displicare.Rooms
                 settings.RoomHomeHotkey = keys;
                 rooms.RoomEdited(null, false);
             }), labelWidth));
-            stack.Children.Add(OptionToggle("Going home turns all desk screens back on", settings.RoomHomeRestoresDesk,
-                "When you switch from your desk to another room, Displicare remembers which screens were on next to the home screen, with their positions, resolution, refresh rate and HDR. Going home turns those back on just as they were. With only the home screen on, going home uses the home room's own settings. Off: going home always turns on the home screen alone.",
-                v => settings.RoomHomeRestoresDesk = v));
 
             stack.Children.Add(OptionToggle("Switch with a controller: hold View + Menu", settings.RoomController,
                 "Opens a room picker on screen: up and down to choose, A to switch, B to close. A and B also answer \"Keep this display layout?\". View + a D-pad direction goes straight to the room on that direction (set per room), even when you can't see a screen. Works with Xbox controllers and anything Steam shows as one. Displicare only reads the controller the way games do: it doesn't hook anything or send input to games, so it is safe with anti-cheat.",

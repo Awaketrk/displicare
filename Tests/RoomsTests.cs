@@ -588,7 +588,7 @@ namespace Displicare.Tests
             Assert.True(!RoomManager.SameScreens(layout, new[] { "GBT3214", "GSM82CD" }), "an extra screen");
         }
 
-        // ---------------------------------------------------------------- desk layout
+        // ---------------------------------------------------------------- rooms with several screens
 
         static DisplayIdentity Screen(string model)
         {
@@ -598,73 +598,115 @@ namespace Displicare.Tests
             return id;
         }
 
-        /// <summary>A captured layout of these screens side by side; the first one is primary.</summary>
-        static Profile Layout(params string[] models)
+        static TargetInfo On(uint id, string model)
         {
-            var p = new Profile();
-            p.Name = "Now";
-            p.AudioId = "{speakers}";
-            p.AudioName = "Speakers";
-            for (int i = 0; i < models.Length; i++)
+            var t = Target(1, id, Screen(model));
+            t.Active = true;
+            return t;
+        }
+
+        static Room RoomFor(string key, params string[] alsoOn)
+        {
+            var r = new Room();
+            r.Key = key;
+            r.Name = key;
+            r.AlsoOn = alsoOn.Length > 0 ? new List<string>(alsoOn) : null;
+            return r;
+        }
+
+        [Test]
+        public static void RoomWithSeveralScreensIsOnScreen()
+        {
+            var desk = new List<TargetInfo> { On(1, "GBT3214"), On(2, "DEL4321") };
+            var home = RoomFor("GBT3214", "DEL4321");
+            var rooms = new List<Room> { home, RoomFor("DEL4321"), RoomFor("GSM82CD") };
+            Assert.Equal("GBT3214", RoomManager.ActiveRoomKey(desk, rooms, "GBT3214"), "home and its second screen");
+            Assert.True(RoomManager.ActiveRoomKey(desk, new List<Room> { RoomFor("GBT3214") }, "GBT3214") == null, "no room has these screens");
+            var tvToo = new List<TargetInfo> { On(1, "GBT3214"), On(2, "DEL4321"), On(3, "GSM82CD") };
+            Assert.True(RoomManager.ActiveRoomKey(tvToo, rooms, "GBT3214") == null, "an extra screen on");
+            Assert.Equal("GSM82CD", RoomManager.ActiveRoomKey(new List<TargetInfo> { On(3, "GSM82CD") }, rooms, null), "one screen as before");
+
+            rooms.Add(RoomFor("DEL4321", "GBT3214"));
+            rooms.RemoveAt(1);
+            Assert.Equal("DEL4321", RoomManager.ActiveRoomKey(desk, rooms, "DEL4321"), "same screens: the one on the main screen");
+        }
+
+        [Test]
+        public static void LeavingTheDeskFirstTimeKeepsItsScreens()
+        {
+            var desk = new List<TargetInfo> { On(1, "GBT3214"), On(2, "DEL4321") };
+            var home = RoomFor("GBT3214");
+            Assert.True(RoomManager.PickUpDesk(home, RoomFor("GSM82CD"), desk), "off to the TV");
+            Assert.Equal(1, home.AlsoOn.Count, "one other screen");
+            Assert.Equal("DEL4321", home.AlsoOn[0], "the second desk screen");
+
+            var chosen = RoomFor("GBT3214");
+            chosen.AlsoOn = new List<string>();
+            Assert.True(!RoomManager.PickUpDesk(chosen, RoomFor("GSM82CD"), desk), "screens already chosen in Room settings");
+            Assert.True(!RoomManager.PickUpDesk(RoomFor("GBT3214"), RoomFor("DEL4321"), desk), "one desk screen on its own isn't leaving");
+            Assert.True(!RoomManager.PickUpDesk(RoomFor("GBT3214"), RoomFor("GSM82CD"), new List<TargetInfo> { On(1, "GBT3214") }), "home screen alone");
+            Assert.True(!RoomManager.PickUpDesk(RoomFor("GBT3214"), RoomFor("TCL9653"), new List<TargetInfo> { On(3, "GSM82CD") }), "leaving another room");
+        }
+
+        [Test]
+        public static void ScreensWithoutALearnedLayoutGoSideBySide()
+        {
+            var main = RoomFor("GBT3214", "DEL4321", "GSM82CD");
+            var dell = RoomFor("DEL4321");
+            dell.Width = 2560; dell.Height = 1440;
+            var lg = RoomFor("GSM82CD");
+            lg.Hdr = Room.HdrOff;
+            var p = RoomManager.BuildCombo(main, new DisplayMode(3840, 2160, 240), new List<Room> { dell, lg },
+                new List<DisplayMode?> { null, new DisplayMode(3840, 2160, 120) });
+            Assert.Equal(3, p.Displays.Count, "three screens");
+            Assert.True(p.Displays[0].Primary && p.Displays[0].X == 0, "this room's screen is the main one at 0,0");
+            Assert.True(!p.Displays[1].Primary && p.Displays[1].X == 3840, "next to its native width");
+            Assert.Equal(3840 + 2560, p.Displays[2].X, "after the Dell's set width");
+            Assert.Equal(0, p.Displays[2].Hdr, "each screen keeps its own room's HDR");
+            Assert.Equal(0, p.Paths.Count, "rebuilt by Windows, modes set afterwards");
+        }
+
+        [Test]
+        public static void LayoutSignatureSeesArrangementNotOrder()
+        {
+            Func<int, Profile> make = x =>
             {
-                var d = new ProfileDisplay();
-                d.Identity = Screen(models[i]);
-                d.Primary = i == 0;
-                d.X = i * 3840;
-                d.Width = 3840; d.Height = 2160; d.RefreshHz = 144;
-                p.Displays.Add(d);
-            }
-            return p;
+                var p = new Profile();
+                foreach (var m in new[] { "GBT3214", "DEL4321" })
+                {
+                    var d = new ProfileDisplay();
+                    d.Identity = Screen(m);
+                    d.Width = 3840; d.Height = 2160;
+                    d.Primary = m == "GBT3214";
+                    d.X = m == "GBT3214" ? 0 : x;
+                    p.Displays.Add(d);
+                }
+                return p;
+            };
+            var a = make(3840);
+            var b = make(3840);
+            b.Displays.Reverse();
+            Assert.Equal(RoomManager.LayoutSignature(a), RoomManager.LayoutSignature(b), "same arrangement, other order");
+            Assert.True(RoomManager.LayoutSignature(a) != RoomManager.LayoutSignature(make(-3840)), "Dell moved to the left");
         }
 
         [Test]
-        public static void LeavingTheDeskRemembersItsScreens()
+        public static void SavedLayoutIsChecked()
         {
-            var desk = Layout("GBT3214", "DEL4321");
-            var kept = RoomManager.NextDeskLayout(null, desk, "GBT3214", "GSM82CD");
-            Assert.True(kept == desk, "two desk screens, off to the TV: remembered");
-            Assert.Equal("Desk", kept.Name, "name");
-            Assert.True(kept.AudioId == null && kept.AudioName == null, "sound stays with the home room");
-            Assert.Equal(2, kept.Displays.Count, "both screens");
-        }
-
-        [Test]
-        public static void OnlyLeavingTheDeskChangesIt()
-        {
-            var saved = Layout("GBT3214", "DEL4321");
-            Assert.True(RoomManager.NextDeskLayout(saved, Layout("GSM82CD"), "GBT3214", "TCL9653") == saved, "TV to TV keeps the desk");
-            Assert.True(RoomManager.NextDeskLayout(saved, Layout("GBT3214", "DEL4321"), "GBT3214", "DEL4321") == saved,
-                "one desk screen on its own isn't leaving the desk");
-            Assert.True(RoomManager.NextDeskLayout(saved, null, "GBT3214", "GSM82CD") == saved, "layout unreadable");
-            Assert.True(RoomManager.NextDeskLayout(saved, Layout("GBT3214"), "GBT3214", "GSM82CD") == null,
-                "home screen alone: the home room's own settings again");
-        }
-
-        [Test]
-        public static void GoingHomeNeedsEveryDeskScreen()
-        {
-            var desk = Layout("GBT3214", "DEL4321");
-            var both = new List<TargetInfo> { Target(1, 1, Screen("GBT3214")), Target(1, 2, Screen("DEL4321")), Target(1, 3, Screen("GSM82CD")) };
-            Assert.True(RoomManager.DeskToRestore(desk, "GBT3214", both) == desk, "all connected");
-            var one = new List<TargetInfo> { Target(1, 1, Screen("GBT3214")), Target(1, 3, Screen("GSM82CD")) };
-            Assert.True(RoomManager.DeskToRestore(desk, "GBT3214", one) == null, "a desk screen unplugged: home screen alone");
-            Assert.True(RoomManager.DeskToRestore(desk, "GSM82CD", both) == null, "home moved to the TV");
-            Assert.True(RoomManager.DeskToRestore(null, "GBT3214", both) == null, "nothing saved");
-        }
-
-        [Test]
-        public static void SavedDeskIsChecked()
-        {
-            Assert.True(!RoomManager.UsableDesk(Layout("GBT3214")), "one screen");
-            var broken = Layout("GBT3214", "DEL4321");
-            broken.Displays[1].Identity = null;
-            Assert.True(!RoomManager.UsableDesk(broken), "a screen without identity");
-            var partial = Layout("GBT3214", "DEL4321");
-            partial.Paths = null;
-            partial.Modes = null;
-            partial.Adapters = null;
-            Assert.True(RoomManager.UsableDesk(partial), "lists missing from settings.json");
-            Assert.True(partial.Paths != null && partial.Modes != null && partial.Adapters != null, "filled in");
+            var one = new Profile();
+            var d = new ProfileDisplay();
+            d.Identity = Screen("GBT3214");
+            one.Displays.Add(d);
+            Assert.True(!RoomManager.UsableLayout(one), "one screen");
+            var two = new Profile();
+            two.Displays.Add(d);
+            var e = new ProfileDisplay();
+            two.Displays.Add(e);
+            Assert.True(!RoomManager.UsableLayout(two), "a screen without identity");
+            e.Identity = Screen("DEL4321");
+            two.Paths = null; two.Modes = null; two.Adapters = null;
+            Assert.True(RoomManager.UsableLayout(two), "lists missing from settings.json");
+            Assert.True(two.Paths != null && two.Modes != null && two.Adapters != null, "filled in");
         }
 
         [Test]

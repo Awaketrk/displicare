@@ -175,7 +175,6 @@ namespace Displicare
             Rooms = new List<Room>();
             RoomHomeKey = "";
             RoomHomeHotkey = "Ctrl+Alt+0";
-            RoomHomeRestoresDesk = true;
             RoomAskToKeep = RoomAskNew;
             RoomController = true;
             RoomStreamScreensOff = true;
@@ -208,17 +207,6 @@ namespace Displicare
 
         [DataMember]
         public string RoomHomeHotkey { get; set; }
-
-        /// <summary>Going home turns every desk screen back on as it was when you left (<see cref="RoomDeskLayout"/>); off = the home screen alone.</summary>
-        [DataMember]
-        public bool RoomHomeRestoresDesk { get; set; }
-
-        /// <summary>
-        /// The desk as it was the last time you left it for another room: the home screen and the screens next to it, with
-        /// positions, modes and HDR. Null when the home screen was on alone, so the home room's own settings apply.
-        /// </summary>
-        [DataMember]
-        internal global::Displicare.Rooms.Profile RoomDeskLayout { get; set; }
 
         /// <summary>When to ask "Keep this display layout?": new (until a room's switch was kept once), always or never.</summary>
         [DataMember]
@@ -505,6 +493,8 @@ namespace Displicare
 
         internal const int MaxRooms = 32;
         internal const int MaxRoomNameLength = 40;
+        /// <summary>Screens a room can turn on next to its own.</summary>
+        internal const int MaxAlsoOn = 8;
 
         private static void SanitizeRooms(AppSettings settings)
         {
@@ -514,7 +504,6 @@ namespace Displicare
             if (settings.RoomHomeKey == null) settings.RoomHomeKey = "";
             if (settings.RoomHomeHotkey == null) settings.RoomHomeHotkey = "Ctrl+Alt+0";
             else if (settings.RoomHomeHotkey.Length > 0) settings.RoomHomeHotkey = Rooms.Hotkey.Normalize(settings.RoomHomeHotkey) ?? "";
-            if (!Rooms.RoomManager.UsableDesk(settings.RoomDeskLayout)) settings.RoomDeskLayout = null;
 
             if (settings.Rooms == null) settings.Rooms = new List<Room>();
             settings.Rooms.RemoveAll(r => r == null || string.IsNullOrWhiteSpace(r.Key));
@@ -543,6 +532,14 @@ namespace Displicare
                 if (r.KnownModes == null) r.KnownModes = new List<string>();
                 r.KnownModes.RemoveAll(m => m == null);
                 if (r.KnownModes.Count > 64) r.KnownModes.RemoveRange(64, r.KnownModes.Count - 64);
+                if (r.AlsoOn != null)
+                {
+                    var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    seenKeys.Add(r.Key);
+                    r.AlsoOn.RemoveAll(k => string.IsNullOrWhiteSpace(k) || !seenKeys.Add(k));
+                    if (r.AlsoOn.Count > MaxAlsoOn) r.AlsoOn.RemoveRange(MaxAlsoOn, r.AlsoOn.Count - MaxAlsoOn);
+                }
+                if (!Rooms.RoomManager.UsableLayout(r.Layout)) r.Layout = null;
             }
         }
 

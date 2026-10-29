@@ -21,6 +21,8 @@ namespace Displicare.Rooms
         /// <summary>The display's native resolution from its EDID, if known.</summary>
         public DisplayMode? Native;
         public bool HdrCapable;
+        /// <summary>"Dell U2723QE, LG TV SSCR2": the other screens this room turns on, or null.</summary>
+        public string AlsoOnNames;
     }
 
     /// <summary>
@@ -207,7 +209,7 @@ namespace Displicare.Rooms
         void Discover()
         {
             lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
-            activeKey = ActiveKey(lastTargets);
+            activeKey = FindActiveRoom();
             // 2.3.2 test builds took a streaming display (SudoVDA reports a connector like HDMI) for a screen of its own.
             int stray = settings.Rooms.RemoveAll(r => DisplayConfigApi.IsVirtualAdapter(r.AdapterPath));
             if (stray > 0)
@@ -301,6 +303,55 @@ namespace Displicare.Rooms
             return physical == 1 ? key : null;
         }
 
+        /// <summary>The room on screen now, from <see cref="lastTargets"/> and which screen is the main one.</summary>
+        string FindActiveRoom()
+        {
+            string primary = null;
+            try
+            {
+                foreach (var d in DisplayTopology.GetActiveDisplays())
+                    if (d.Primary && !d.IsVirtual && d.Identity != null) primary = ModelKey(d.Identity.DevicePath);
+            }
+            catch (Exception) { }
+            return ActiveRoomKey(lastTargets, settings.Rooms, primary);
+        }
+
+        /// <summary>
+        /// Key of the room on screen: the one physical display that is on, or a room whose screens (its own and
+        /// <see cref="Room.AlsoOn"/>) are exactly the ones on. Two rooms with the same screens: the one on the main screen.
+        /// </summary>
+        internal static string ActiveRoomKey(IList<TargetInfo> targets, IList<Room> rooms, string primaryKey)
+        {
+            string single = ActiveKey(targets);
+            if (single != null) return single;
+            var on = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in targets)
+            {
+                if (!t.Active || t.IsVirtual) continue;
+                string key = t.Identity != null ? ModelKey(t.Identity.DevicePath) : null;
+                if (key == null) return null;
+                on.Add(key);
+            }
+            if (on.Count < 2) return null;
+            string found = null;
+            foreach (var r in rooms)
+            {
+                if (r.AlsoOn == null || r.AlsoOn.Count == 0 || !RoomScreens(r).SetEquals(on)) continue;
+                if (string.Equals(r.Key, primaryKey, StringComparison.OrdinalIgnoreCase)) return r.Key;
+                if (found == null) found = r.Key;
+            }
+            return found;
+        }
+
+        /// <summary>The room's own screen and the ones it turns on with it, by key.</summary>
+        internal static HashSet<string> RoomScreens(Room room)
+        {
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            keys.Add(room.Key ?? "");
+            if (room.AlsoOn != null) foreach (var k in room.AlsoOn) if (!string.IsNullOrEmpty(k)) keys.Add(k);
+            return keys;
+        }
+
         public Room FindByKey(string key)
         {
             if (string.IsNullOrEmpty(key)) return null;
@@ -342,12 +393,11 @@ namespace Displicare.Rooms
         public List<RoomStatus> Statuses()
         {
             var list = new List<RoomStatus>();
-            var home = DeskOn() ? HomeRoom : null;
             foreach (var room in settings.Rooms)
             {
                 var s = new RoomStatus();
                 s.Room = room;
-                s.Active = string.Equals(room.Key, activeKey, StringComparison.OrdinalIgnoreCase) || room == home;
+                s.Active = string.Equals(room.Key, activeKey, StringComparison.OrdinalIgnoreCase);
                 foreach (var t in lastTargets)
                 {
                     if (!t.Available || t.Identity == null || !string.Equals(ModelKey(t.Identity.DevicePath), room.Key, StringComparison.OrdinalIgnoreCase)) continue;
@@ -360,6 +410,16 @@ namespace Displicare.Rooms
                 // Once the room has been on screen, only offer what Windows actually allowed on this connection.
                 s.ModesFromEdid = room.KnownModes.Count == 0;
                 s.Modes = MergeModes(room.KnownModes, s.ModesFromEdid ? Edid.Modes(edid) : null);
+                if (room.AlsoOn != null && room.AlsoOn.Count > 0)
+                {
+                    var names = new List<string>();
+                    foreach (var key in room.AlsoOn)
+                    {
+                        var other = FindByKey(key);
+                        names.Add(other != null ? other.Name : key);
+                    }
+                    s.AlsoOnNames = string.Join(", ", names.ToArray());
+                }
                 list.Add(s);
             }
             return list;
@@ -460,11 +520,14 @@ namespace Displicare.Rooms
         {
             var room = FindByKey(activeKey);
             if (room == null) return;
+            // With several screens on, learn from this room's own one.
             ActiveDisplay display = null;
-            foreach (var d in DisplayTopology.GetActiveDisplays()) if (!d.IsVirtual) display = d;
+            foreach (var d in DisplayTopology.GetActiveDisplays())
+                if (!d.IsVirtual && d.Identity != null && string.Equals(ModelKey(d.Identity.DevicePath), room.Key, StringComparison.OrdinalIgnoreCase))
+                    display = d;
             if (display == null) return;
 
-            bool changed = false;
+            bool changed = LearnLayout(room);
             int width = display.Width, height = display.Height, hz = (int)Math.Round(display.RefreshHz);
             var offered = display.GdiName != null ? LayoutEngine.ListModes(display.GdiName) : null;
             if (offered != null) AsDefaults(offered, Edid.Preferred(EdidFor(room)), ref width, ref height, ref hz);
@@ -495,6 +558,66 @@ namespace Displicare.Rooms
                 RoomLog.Write("Learned \"" + room.Name + "\": " + RoomsView.Summary(room));
                 save();
             }
+        }
+
+        /// <summary>
+        /// A room with other screens keeps how they are arranged in Windows (positions, exact modes, HDR) while all of them
+        /// are on, so switching here puts them back just so. Sound stays the room's own setting.
+        /// </summary>
+        bool LearnLayout(Room room)
+        {
+            if (room.AlsoOn == null || room.AlsoOn.Count == 0) return false;
+            Profile now;
+            try { now = LayoutEngine.Capture(room.Name, false); }
+            catch (Exception ex)
+            {
+                RoomLog.Write("Couldn't record the layout of \"" + room.Name + "\": " + ex.Message);
+                return false;
+            }
+            if (!RoomScreens(room).SetEquals(ScreenKeys(now))) return false;
+            now.AudioId = null;
+            now.AudioName = null;
+            if (room.Layout != null && LayoutSignature(room.Layout) == LayoutSignature(now)) return false;
+            room.Layout = now;
+            RoomLog.Write("Learned the layout of \"" + room.Name + "\": " + now.Summary);
+            return true;
+        }
+
+        /// <summary>Which screens, where, in which mode: two layouts with the same signature look the same.</summary>
+        internal static string LayoutSignature(Profile layout)
+        {
+            var parts = new List<string>();
+            foreach (var d in layout.Displays)
+                parts.Add(string.Format("{0}@{1},{2}:{3}x{4}@{5:0.##}/{6}{7}", d.Identity != null ? ModelKey(d.Identity.DevicePath) : "?",
+                    d.X, d.Y, d.Width, d.Height, d.RefreshHz, d.Hdr, d.Primary ? "*" : ""));
+            parts.Sort(StringComparer.Ordinal);
+            return string.Join(" ", parts.ToArray());
+        }
+
+        /// <summary>The screens in a layout, by key.</summary>
+        internal static HashSet<string> ScreenKeys(Profile layout)
+        {
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var d in layout.Displays)
+            {
+                string key = d != null && d.Identity != null ? ModelKey(d.Identity.DevicePath) : null;
+                keys.Add(key ?? "");
+            }
+            return keys;
+        }
+
+        /// <summary>
+        /// Whether a saved layout (from settings.json) can be used: two or more screens that each say which monitor they
+        /// are. Lists missing from the file are filled in empty.
+        /// </summary>
+        internal static bool UsableLayout(Profile layout)
+        {
+            if (layout == null || layout.Displays == null || layout.Displays.Count < 2 || layout.Displays.Count > 16) return false;
+            foreach (var d in layout.Displays) if (d == null || d.Identity == null || ModelKey(d.Identity.DevicePath) == null) return false;
+            if (layout.Paths == null) layout.Paths = new List<SavedPath>();
+            if (layout.Modes == null) layout.Modes = new List<SavedMode>();
+            if (layout.Adapters == null) layout.Adapters = new List<SavedAdapter>();
+            return true;
         }
 
         /// <summary>
@@ -604,22 +727,14 @@ namespace Displicare.Rooms
             try
             {
                 lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
-                activeKey = ActiveKey(lastTargets);
+                if (PickUpDesk(HomeRoom, room, lastTargets)) save();
+                activeKey = FindActiveRoom();
                 Learn(); // keep what was used in the room we're leaving
             }
             catch (Exception ex) { RoomLog.Write("Couldn't read the current room: " + ex.Message); }
 
-            var homeRoom = HomeRoom;
             var leaving = FindByKey(activeKey);
-            if (leaving == null && DeskOn()) leaving = homeRoom;
-            if (settings.RoomHomeRestoresDesk && homeRoom != null && room != homeRoom) RememberDesk(homeRoom.Key, room.Key);
-            Profile profile = null;
-            if (settings.RoomHomeRestoresDesk && room == homeRoom && settings.RoomDeskLayout != null)
-            {
-                profile = DeskToRestore(settings.RoomDeskLayout, room.Key, lastTargets);
-                if (profile == null) RoomLog.Write("Not every desk screen is connected; going home to " + room.Name + " alone.");
-            }
-            if (profile == null) profile = BuildProfile(room, Edid.Preferred(EdidFor(room)));
+            var profile = RoomProfile(room);
             bool ask = !home && (settings.RoomAskToKeep == AppSettings.RoomAskAlways
                 || (settings.RoomAskToKeep == AppSettings.RoomAskNew && !room.Confirmed));
             bool pad = gamepad != null && gamepad.Connected;
@@ -703,7 +818,7 @@ namespace Displicare.Rooms
             try
             {
                 lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
-                activeKey = ActiveKey(lastTargets);
+                activeKey = FindActiveRoom();
                 CheckStream(); // a stream that started during the switch
                 if (!StreamOn()) RememberLayout();
             }
@@ -749,6 +864,101 @@ namespace Displicare.Rooms
                 if (int.TryParse(name.Substring(0, dash), out n)) name = name.Substring(dash + 3);
             }
             return name;
+        }
+
+        /// <summary>
+        /// The first time you leave the desk (the home screen on with others next to it) for a room that isn't one of them,
+        /// those other screens become the home room's <see cref="Room.AlsoOn"/>, so going home turns them back on. Only
+        /// while the home room hasn't been given screens yet: after that, Room settings decide.
+        /// </summary>
+        internal static bool PickUpDesk(Room home, Room target, IList<TargetInfo> targets)
+        {
+            if (home == null || target == null || home == target || home.AlsoOn != null) return false;
+            var on = new List<string>();
+            bool homeOn = false;
+            foreach (var t in targets)
+            {
+                if (!t.Active || t.IsVirtual || t.Identity == null) continue;
+                string key = ModelKey(t.Identity.DevicePath);
+                if (key == null) continue;
+                if (string.Equals(key, target.Key, StringComparison.OrdinalIgnoreCase)) return false; // one desk screen on its own
+                if (string.Equals(key, home.Key, StringComparison.OrdinalIgnoreCase)) homeOn = true;
+                else if (!on.Contains(key)) on.Add(key);
+            }
+            if (!homeOn || on.Count == 0) return false;
+            home.AlsoOn = on;
+            RoomLog.Write("\"" + home.Name + "\" now also turns on " + string.Join(", ", on.ToArray()) + ".");
+            return true;
+        }
+
+        /// <summary>
+        /// The layout for switching to a room: its learned arrangement when every one of its screens is connected and it
+        /// still has the same screens, else its own screen with the connected <see cref="Room.AlsoOn"/> screens to its right.
+        /// </summary>
+        Profile RoomProfile(Room room)
+        {
+            var native = Edid.Preferred(EdidFor(room));
+            var others = new List<Room>();
+            var natives = new List<DisplayMode?>();
+            if (room.AlsoOn != null)
+                foreach (var key in room.AlsoOn)
+                {
+                    var other = FindByKey(key);
+                    if (other == null || other == room) continue;
+                    if (!IsConnected(other.Key))
+                    {
+                        RoomLog.Write("\"" + other.Name + "\" isn't connected, so \"" + room.Name + "\" goes without it.");
+                        continue;
+                    }
+                    others.Add(other);
+                    natives.Add(Edid.Preferred(EdidFor(other)));
+                }
+            if (others.Count == 0) return BuildProfile(room, native);
+
+            var want = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            want.Add(room.Key);
+            foreach (var o in others) want.Add(o.Key);
+            if (UsableLayout(room.Layout) && ScreenKeys(room.Layout).SetEquals(want))
+            {
+                bool all = true;
+                foreach (var d in room.Layout.Displays) if (LayoutEngine.MatchTarget(d.Identity, lastTargets) < 0) all = false;
+                if (all) return room.Layout;
+            }
+            return BuildCombo(room, native, others, natives);
+        }
+
+        bool IsConnected(string key)
+        {
+            foreach (var t in lastTargets)
+                if (t.Available && !t.IsVirtual && t.Identity != null && string.Equals(ModelKey(t.Identity.DevicePath), key, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        /// <summary>
+        /// A room's screen (main, at 0,0) with other screens side by side to its right, each with its own room's mode and
+        /// HDR. Used until Windows has shown them together once and the real arrangement is learned.
+        /// </summary>
+        internal static Profile BuildCombo(Room main, DisplayMode? native, IList<Room> others, IList<DisplayMode?> otherNatives)
+        {
+            var profile = BuildProfile(main, native);
+            int x = Wide(profile.Displays[0]);
+            for (int i = 0; i < others.Count; i++)
+            {
+                var d = BuildProfile(others[i], i < otherNatives.Count ? otherNatives[i] : null).Displays[0];
+                d.Primary = false;
+                d.X = x;
+                d.Y = 0;
+                x += Wide(d);
+                profile.Displays.Add(d);
+            }
+            return profile;
+        }
+
+        /// <summary>The width a display will have: its set width, else its native one, else a guess.</summary>
+        static int Wide(ProfileDisplay d)
+        {
+            return d.Width > 0 ? d.Width : d.NativeWidth > 0 ? d.NativeWidth : 1920;
         }
 
         /// <summary>The one-display layout for a room. Sound is handled separately (<see cref="BeginRoomAudio"/>).</summary>
@@ -1162,91 +1372,6 @@ namespace Displicare.Rooms
             catch (Exception ex) { RoomLog.Write("Couldn't record the layout: " + ex.Message); }
         }
 
-        // ---------------------------------------------------------------- desk
-
-        /// <summary>
-        /// Called right before switching to another room: if the home screen is on, the layout now (it and the screens
-        /// next to it) is what going home brings back.
-        /// </summary>
-        void RememberDesk(string homeKey, string targetKey)
-        {
-            Profile now;
-            try { now = LayoutEngine.Capture("Desk", false); }
-            catch (Exception ex)
-            {
-                RoomLog.Write("Couldn't record the desk layout: " + ex.Message);
-                return;
-            }
-            var next = NextDeskLayout(settings.RoomDeskLayout, now, homeKey, targetKey);
-            if (next == settings.RoomDeskLayout) return;
-            settings.RoomDeskLayout = next;
-            RoomLog.Write(next != null ? "Going home brings back the desk: " + next.Summary : "Going home brings back the home screen alone.");
-            save();
-        }
-
-        /// <summary>
-        /// The desk layout to keep after leaving <paramref name="now"/> for the room on <paramref name="targetKey"/>.
-        /// Only leaving the desk counts: the home screen has to be on, and the room switched to not (one desk screen on its
-        /// own isn't leaving). The home screen alone gives null, so the home room's own settings decide.
-        /// </summary>
-        internal static Profile NextDeskLayout(Profile saved, Profile now, string homeKey, string targetKey)
-        {
-            if (now == null || string.IsNullOrEmpty(homeKey)) return saved;
-            var keys = ScreenKeys(now);
-            if (!keys.Contains(homeKey) || keys.Contains(targetKey ?? "")) return saved;
-            if (now.Displays.Count < 2) return null;
-            now.Name = "Desk";
-            // Sound belongs to the home room (its own setting, learned from the user), not to this snapshot.
-            now.AudioId = null;
-            now.AudioName = null;
-            return now;
-        }
-
-        /// <summary>The saved desk if it includes the home screen and every one of its screens is connected; else null.</summary>
-        internal static Profile DeskToRestore(Profile desk, string homeKey, IList<TargetInfo> targets)
-        {
-            if (!UsableDesk(desk) || !ScreenKeys(desk).Contains(homeKey ?? "")) return null;
-            foreach (var d in desk.Displays) if (LayoutEngine.MatchTarget(d.Identity, targets) < 0) return null;
-            return desk;
-        }
-
-        /// <summary>
-        /// Whether a saved desk layout (from settings.json) can be used: two or more screens that each say which monitor
-        /// they are. Lists missing from the file are filled in empty.
-        /// </summary>
-        internal static bool UsableDesk(Profile desk)
-        {
-            if (desk == null || desk.Displays == null || desk.Displays.Count < 2 || desk.Displays.Count > 16) return false;
-            foreach (var d in desk.Displays) if (d == null || d.Identity == null || ModelKey(d.Identity.DevicePath) == null) return false;
-            if (desk.Paths == null) desk.Paths = new List<SavedPath>();
-            if (desk.Modes == null) desk.Modes = new List<SavedMode>();
-            if (desk.Adapters == null) desk.Adapters = new List<SavedAdapter>();
-            return true;
-        }
-
-        /// <summary>The saved desk is what's on screen now, so the home room counts as on screen.</summary>
-        bool DeskOn()
-        {
-            var home = HomeRoom;
-            if (!settings.RoomHomeRestoresDesk || home == null || !UsableDesk(settings.RoomDeskLayout)
-                || !ScreenKeys(settings.RoomDeskLayout).Contains(home.Key ?? "")) return false;
-            var on = new List<string>();
-            foreach (var t in lastTargets)
-                if (t.Active && !t.IsVirtual) on.Add(t.Identity != null ? ModelKey(t.Identity.DevicePath) : null);
-            return SameScreens(settings.RoomDeskLayout, on);
-        }
-
-        static HashSet<string> ScreenKeys(Profile layout)
-        {
-            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var d in layout.Displays)
-            {
-                string key = d != null && d.Identity != null ? ModelKey(d.Identity.DevicePath) : null;
-                if (key != null) keys.Add(key);
-            }
-            return keys;
-        }
-
         /// <summary>Whether the screens on now are the ones in <paramref name="layout"/> (by model).</summary>
         internal static bool SameScreens(Profile layout, IList<string> activeKeys)
         {
@@ -1341,7 +1466,7 @@ namespace Displicare.Rooms
                     try
                     {
                         lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
-                        activeKey = ActiveKey(lastTargets);
+                        activeKey = FindActiveRoom();
                         CheckStream(); // the stream may have ended meanwhile
                         if (!StreamOn() && !busy) RememberLayout();
                     }
