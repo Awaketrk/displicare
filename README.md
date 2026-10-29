@@ -12,6 +12,7 @@
   <a href="https://github.com/Awaketrk/displicare/releases/latest"><img src="https://img.shields.io/github/v/release/Awaketrk/displicare?label=release" alt="Latest release"></a>
   <a href="https://github.com/Awaketrk/displicare/actions/workflows/build.yml"><img src="https://github.com/Awaketrk/displicare/actions/workflows/build.yml/badge.svg" alt="Build"></a>
   <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4" alt="Windows 10 and 11">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license"></a>
 </p>
 
 <p align="center">
@@ -155,3 +156,8 @@ Between releases the version in `Properties\AssemblyInfo.cs` ends in `-test` (e.
 | `Rooms/` | Room switching: display layouts, EDID modes, sound outputs, controller, on-screen notes, the Rooms tab and window |
 | `Tests/` | Unit tests |
 | `build-release.ps1`, `installer.iss` | Release packaging |
+| `docs/ROADMAP.md` | Ideas for future versions |
+
+## License
+
+[MIT](LICENSE): free to use, modify and share, including commercially, as long as the copyright notice stays with the code.
