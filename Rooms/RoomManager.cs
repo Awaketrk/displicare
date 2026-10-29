@@ -342,11 +342,12 @@ namespace Displicare.Rooms
         public List<RoomStatus> Statuses()
         {
             var list = new List<RoomStatus>();
+            var home = DeskOn() ? HomeRoom : null;
             foreach (var room in settings.Rooms)
             {
                 var s = new RoomStatus();
                 s.Room = room;
-                s.Active = string.Equals(room.Key, activeKey, StringComparison.OrdinalIgnoreCase);
+                s.Active = string.Equals(room.Key, activeKey, StringComparison.OrdinalIgnoreCase) || room == home;
                 foreach (var t in lastTargets)
                 {
                     if (!t.Available || t.Identity == null || !string.Equals(ModelKey(t.Identity.DevicePath), room.Key, StringComparison.OrdinalIgnoreCase)) continue;
@@ -608,9 +609,17 @@ namespace Displicare.Rooms
             }
             catch (Exception ex) { RoomLog.Write("Couldn't read the current room: " + ex.Message); }
 
+            var homeRoom = HomeRoom;
             var leaving = FindByKey(activeKey);
-            var native = Edid.Preferred(EdidFor(room));
-            var profile = BuildProfile(room, native);
+            if (leaving == null && DeskOn()) leaving = homeRoom;
+            if (settings.RoomHomeRestoresDesk && homeRoom != null && room != homeRoom) RememberDesk(homeRoom.Key, room.Key);
+            Profile profile = null;
+            if (settings.RoomHomeRestoresDesk && room == homeRoom && settings.RoomDeskLayout != null)
+            {
+                profile = DeskToRestore(settings.RoomDeskLayout, room.Key, lastTargets);
+                if (profile == null) RoomLog.Write("Not every desk screen is connected; going home to " + room.Name + " alone.");
+            }
+            if (profile == null) profile = BuildProfile(room, Edid.Preferred(EdidFor(room)));
             bool ask = !home && (settings.RoomAskToKeep == AppSettings.RoomAskAlways
                 || (settings.RoomAskToKeep == AppSettings.RoomAskNew && !room.Confirmed));
             bool pad = gamepad != null && gamepad.Connected;
@@ -1151,6 +1160,91 @@ namespace Displicare.Rooms
             if (!physical) return;
             try { lastLayout = LayoutEngine.Capture("Before streaming", false); }
             catch (Exception ex) { RoomLog.Write("Couldn't record the layout: " + ex.Message); }
+        }
+
+        // ---------------------------------------------------------------- desk
+
+        /// <summary>
+        /// Called right before switching to another room: if the home screen is on, the layout now (it and the screens
+        /// next to it) is what going home brings back.
+        /// </summary>
+        void RememberDesk(string homeKey, string targetKey)
+        {
+            Profile now;
+            try { now = LayoutEngine.Capture("Desk", false); }
+            catch (Exception ex)
+            {
+                RoomLog.Write("Couldn't record the desk layout: " + ex.Message);
+                return;
+            }
+            var next = NextDeskLayout(settings.RoomDeskLayout, now, homeKey, targetKey);
+            if (next == settings.RoomDeskLayout) return;
+            settings.RoomDeskLayout = next;
+            RoomLog.Write(next != null ? "Going home brings back the desk: " + next.Summary : "Going home brings back the home screen alone.");
+            save();
+        }
+
+        /// <summary>
+        /// The desk layout to keep after leaving <paramref name="now"/> for the room on <paramref name="targetKey"/>.
+        /// Only leaving the desk counts: the home screen has to be on, and the room switched to not (one desk screen on its
+        /// own isn't leaving). The home screen alone gives null, so the home room's own settings decide.
+        /// </summary>
+        internal static Profile NextDeskLayout(Profile saved, Profile now, string homeKey, string targetKey)
+        {
+            if (now == null || string.IsNullOrEmpty(homeKey)) return saved;
+            var keys = ScreenKeys(now);
+            if (!keys.Contains(homeKey) || keys.Contains(targetKey ?? "")) return saved;
+            if (now.Displays.Count < 2) return null;
+            now.Name = "Desk";
+            // Sound belongs to the home room (its own setting, learned from the user), not to this snapshot.
+            now.AudioId = null;
+            now.AudioName = null;
+            return now;
+        }
+
+        /// <summary>The saved desk if it includes the home screen and every one of its screens is connected; else null.</summary>
+        internal static Profile DeskToRestore(Profile desk, string homeKey, IList<TargetInfo> targets)
+        {
+            if (!UsableDesk(desk) || !ScreenKeys(desk).Contains(homeKey ?? "")) return null;
+            foreach (var d in desk.Displays) if (LayoutEngine.MatchTarget(d.Identity, targets) < 0) return null;
+            return desk;
+        }
+
+        /// <summary>
+        /// Whether a saved desk layout (from settings.json) can be used: two or more screens that each say which monitor
+        /// they are. Lists missing from the file are filled in empty.
+        /// </summary>
+        internal static bool UsableDesk(Profile desk)
+        {
+            if (desk == null || desk.Displays == null || desk.Displays.Count < 2 || desk.Displays.Count > 16) return false;
+            foreach (var d in desk.Displays) if (d == null || d.Identity == null || ModelKey(d.Identity.DevicePath) == null) return false;
+            if (desk.Paths == null) desk.Paths = new List<SavedPath>();
+            if (desk.Modes == null) desk.Modes = new List<SavedMode>();
+            if (desk.Adapters == null) desk.Adapters = new List<SavedAdapter>();
+            return true;
+        }
+
+        /// <summary>The saved desk is what's on screen now, so the home room counts as on screen.</summary>
+        bool DeskOn()
+        {
+            var home = HomeRoom;
+            if (!settings.RoomHomeRestoresDesk || home == null || !UsableDesk(settings.RoomDeskLayout)
+                || !ScreenKeys(settings.RoomDeskLayout).Contains(home.Key ?? "")) return false;
+            var on = new List<string>();
+            foreach (var t in lastTargets)
+                if (t.Active && !t.IsVirtual) on.Add(t.Identity != null ? ModelKey(t.Identity.DevicePath) : null);
+            return SameScreens(settings.RoomDeskLayout, on);
+        }
+
+        static HashSet<string> ScreenKeys(Profile layout)
+        {
+            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var d in layout.Displays)
+            {
+                string key = d != null && d.Identity != null ? ModelKey(d.Identity.DevicePath) : null;
+                if (key != null) keys.Add(key);
+            }
+            return keys;
         }
 
         /// <summary>Whether the screens on now are the ones in <paramref name="layout"/> (by model).</summary>

@@ -175,6 +175,7 @@ namespace Displicare
             Rooms = new List<Room>();
             RoomHomeKey = "";
             RoomHomeHotkey = "Ctrl+Alt+0";
+            RoomHomeRestoresDesk = true;
             RoomAskToKeep = RoomAskNew;
             RoomController = true;
             RoomStreamScreensOff = true;
@@ -207,6 +208,17 @@ namespace Displicare
 
         [DataMember]
         public string RoomHomeHotkey { get; set; }
+
+        /// <summary>Going home turns every desk screen back on as it was when you left (<see cref="RoomDeskLayout"/>); off = the home screen alone.</summary>
+        [DataMember]
+        public bool RoomHomeRestoresDesk { get; set; }
+
+        /// <summary>
+        /// The desk as it was the last time you left it for another room: the home screen and the screens next to it, with
+        /// positions, modes and HDR. Null when the home screen was on alone, so the home room's own settings apply.
+        /// </summary>
+        [DataMember]
+        internal global::Displicare.Rooms.Profile RoomDeskLayout { get; set; }
 
         /// <summary>When to ask "Keep this display layout?": new (until a room's switch was kept once), always or never.</summary>
         [DataMember]
@@ -502,6 +514,7 @@ namespace Displicare
             if (settings.RoomHomeKey == null) settings.RoomHomeKey = "";
             if (settings.RoomHomeHotkey == null) settings.RoomHomeHotkey = "Ctrl+Alt+0";
             else if (settings.RoomHomeHotkey.Length > 0) settings.RoomHomeHotkey = Rooms.Hotkey.Normalize(settings.RoomHomeHotkey) ?? "";
+            if (!Rooms.RoomManager.UsableDesk(settings.RoomDeskLayout)) settings.RoomDeskLayout = null;
 
             if (settings.Rooms == null) settings.Rooms = new List<Room>();
             settings.Rooms.RemoveAll(r => r == null || string.IsNullOrWhiteSpace(r.Key));

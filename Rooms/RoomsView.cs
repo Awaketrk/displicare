@@ -478,6 +478,9 @@ namespace Displicare.Rooms
                 settings.RoomHomeHotkey = keys;
                 rooms.RoomEdited(null, false);
             }), labelWidth));
+            stack.Children.Add(OptionToggle("Going home turns all desk screens back on", settings.RoomHomeRestoresDesk,
+                "When you switch from your desk to another room, Displicare remembers which screens were on next to the home screen, with their positions, resolution, refresh rate and HDR. Going home turns those back on just as they were. With only the home screen on, going home uses the home room's own settings. Off: going home always turns on the home screen alone.",
+                v => settings.RoomHomeRestoresDesk = v));
 
             stack.Children.Add(OptionToggle("Switch with a controller: hold View + Menu", settings.RoomController,
                 "Opens a room picker on screen: up and down to choose, A to switch, B to close. A and B also answer \"Keep this display layout?\". View + a D-pad direction goes straight to the room on that direction (set per room), even when you can't see a screen. Works with Xbox controllers and anything Steam shows as one. Displicare only reads the controller the way games do: it doesn't hook anything or send input to games, so it is safe with anti-cheat.",

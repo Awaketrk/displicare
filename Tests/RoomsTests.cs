@@ -588,6 +588,85 @@ namespace Displicare.Tests
             Assert.True(!RoomManager.SameScreens(layout, new[] { "GBT3214", "GSM82CD" }), "an extra screen");
         }
 
+        // ---------------------------------------------------------------- desk layout
+
+        static DisplayIdentity Screen(string model)
+        {
+            var id = new DisplayIdentity();
+            id.DevicePath = @"\\?\DISPLAY#" + model + "#5&1&0&UID1#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";
+            id.FriendlyName = model;
+            return id;
+        }
+
+        /// <summary>A captured layout of these screens side by side; the first one is primary.</summary>
+        static Profile Layout(params string[] models)
+        {
+            var p = new Profile();
+            p.Name = "Now";
+            p.AudioId = "{speakers}";
+            p.AudioName = "Speakers";
+            for (int i = 0; i < models.Length; i++)
+            {
+                var d = new ProfileDisplay();
+                d.Identity = Screen(models[i]);
+                d.Primary = i == 0;
+                d.X = i * 3840;
+                d.Width = 3840; d.Height = 2160; d.RefreshHz = 144;
+                p.Displays.Add(d);
+            }
+            return p;
+        }
+
+        [Test]
+        public static void LeavingTheDeskRemembersItsScreens()
+        {
+            var desk = Layout("GBT3214", "DEL4321");
+            var kept = RoomManager.NextDeskLayout(null, desk, "GBT3214", "GSM82CD");
+            Assert.True(kept == desk, "two desk screens, off to the TV: remembered");
+            Assert.Equal("Desk", kept.Name, "name");
+            Assert.True(kept.AudioId == null && kept.AudioName == null, "sound stays with the home room");
+            Assert.Equal(2, kept.Displays.Count, "both screens");
+        }
+
+        [Test]
+        public static void OnlyLeavingTheDeskChangesIt()
+        {
+            var saved = Layout("GBT3214", "DEL4321");
+            Assert.True(RoomManager.NextDeskLayout(saved, Layout("GSM82CD"), "GBT3214", "TCL9653") == saved, "TV to TV keeps the desk");
+            Assert.True(RoomManager.NextDeskLayout(saved, Layout("GBT3214", "DEL4321"), "GBT3214", "DEL4321") == saved,
+                "one desk screen on its own isn't leaving the desk");
+            Assert.True(RoomManager.NextDeskLayout(saved, null, "GBT3214", "GSM82CD") == saved, "layout unreadable");
+            Assert.True(RoomManager.NextDeskLayout(saved, Layout("GBT3214"), "GBT3214", "GSM82CD") == null,
+                "home screen alone: the home room's own settings again");
+        }
+
+        [Test]
+        public static void GoingHomeNeedsEveryDeskScreen()
+        {
+            var desk = Layout("GBT3214", "DEL4321");
+            var both = new List<TargetInfo> { Target(1, 1, Screen("GBT3214")), Target(1, 2, Screen("DEL4321")), Target(1, 3, Screen("GSM82CD")) };
+            Assert.True(RoomManager.DeskToRestore(desk, "GBT3214", both) == desk, "all connected");
+            var one = new List<TargetInfo> { Target(1, 1, Screen("GBT3214")), Target(1, 3, Screen("GSM82CD")) };
+            Assert.True(RoomManager.DeskToRestore(desk, "GBT3214", one) == null, "a desk screen unplugged: home screen alone");
+            Assert.True(RoomManager.DeskToRestore(desk, "GSM82CD", both) == null, "home moved to the TV");
+            Assert.True(RoomManager.DeskToRestore(null, "GBT3214", both) == null, "nothing saved");
+        }
+
+        [Test]
+        public static void SavedDeskIsChecked()
+        {
+            Assert.True(!RoomManager.UsableDesk(Layout("GBT3214")), "one screen");
+            var broken = Layout("GBT3214", "DEL4321");
+            broken.Displays[1].Identity = null;
+            Assert.True(!RoomManager.UsableDesk(broken), "a screen without identity");
+            var partial = Layout("GBT3214", "DEL4321");
+            partial.Paths = null;
+            partial.Modes = null;
+            partial.Adapters = null;
+            Assert.True(RoomManager.UsableDesk(partial), "lists missing from settings.json");
+            Assert.True(partial.Paths != null && partial.Modes != null && partial.Adapters != null, "filled in");
+        }
+
         [Test]
         public static void KeepPromptFitsAtEveryScale()
         {
