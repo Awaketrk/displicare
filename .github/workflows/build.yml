@@ -2,14 +2,14 @@ name: Build
 
 # Every push and pull request: compile on a clean Windows machine so a broken build shows up immediately.
 # Tags (v1.2.3): build the full release with build-release.ps1 and publish it as a GitHub Release.
-# Nightly (push to the nightly branch, or a v1.2.3-nightly.N tag): the same packages, published as a pre-release
-# for testing; "Latest" stays as it is. From the branch, the version is the -test one with -nightly.<run number>.
+# Test build (push to the test-build branch, or a v1.2.3-test.N tag): the same packages, published as a pre-release
+# for testing; "Latest" stays as it is. From the branch, the version is the -test one with -test.<run number>.
 # Manual run (Actions tab > Build > Run workflow): build the release packages as a downloadable artifact
 # without publishing anything, to check packaging before tagging.
 
 on:
   push:
-    branches: [main, nightly]
+    branches: [main, test-build]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   build:
-    if: github.ref_type != 'tag' && github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/nightly'
+    if: github.ref_type != 'tag' && github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/test-build'
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +48,7 @@ jobs:
           retention-days: 14
 
   release:
-    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly'
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/test-build'
     runs-on: windows-2022
     permissions:
       contents: write
@@ -60,17 +60,17 @@ jobs:
         shell: pwsh
         run: |
           if ('${{ github.event_name }}' -eq 'workflow_dispatch') { $v = '${{ inputs.version }}' }
-          elseif ('${{ github.ref }}' -eq 'refs/heads/nightly') {
-            # 2.4.6-test in AssemblyInfo.cs gives 2.4.6-nightly.<run number>
+          elseif ('${{ github.ref }}' -eq 'refs/heads/test-build') {
+            # 2.4.6-test in AssemblyInfo.cs gives 2.4.6-test.<run number>
             $info = Get-Content Properties/AssemblyInfo.cs -Raw
             if ($info -notmatch 'AssemblyInformationalVersion\("(\d+\.\d+(\.\d+)?)') { throw "No version in AssemblyInfo.cs" }
-            $v = $Matches[1] + '-nightly.${{ github.run_number }}'
+            $v = $Matches[1] + '-test.${{ github.run_number }}'
           }
           else { $v = '${{ github.ref_name }}' }
           $v = $v.Trim().TrimStart('v', 'V')
-          if ($v -notmatch '^\d+\.\d+(\.\d+){0,2}(-nightly(\.\d+)?)?$') { throw "Not a release version: '$v'" }
+          if ($v -notmatch '^\d+\.\d+(\.\d+){0,2}(-test(\.\d+)?)?$') { throw "Not a release version: '$v'" }
           "version=$v" >> $env:GITHUB_OUTPUT
-          "nightly=$(if ($v -like '*-nightly*') { 'true' } else { 'false' })" >> $env:GITHUB_OUTPUT
+          "testbuild=$(if ($v -like '*-test*') { 'true' } else { 'false' })" >> $env:GITHUB_OUTPUT
 
       - name: Ensure Inno Setup 6
         shell: pwsh
@@ -93,8 +93,8 @@ jobs:
           path: dist/v${{ steps.ver.outputs.version }}/*
           retention-days: 14
 
-      - name: Publish GitHub Release (tags and nightly)
-        if: github.ref_type == 'tag' || github.ref == 'refs/heads/nightly'
+      - name: Publish GitHub Release (tags and test builds)
+        if: github.ref_type == 'tag' || github.ref == 'refs/heads/test-build'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -104,9 +104,13 @@ jobs:
           gh release view "v$v" 2>$null
           if ($LASTEXITCODE -eq 0) { Write-Host "Release v$v already exists; not touching it."; exit 0 }
           $files = (Get-ChildItem "dist/v$v/*").FullName
-          if ('${{ steps.ver.outputs.nightly }}' -eq 'true') {
-            $notes = "Nightly test build from ``${{ github.sha }}``. Not a release: try it, but keep the latest release for everyday use. Install it over your current version, or unzip the portable one to keep your settings apart."
-            gh release create "v$v" $files --target '${{ github.sha }}' --title "Displicare v$v (nightly)" --notes $notes --prerelease --latest=false
+          if ('${{ steps.ver.outputs.testbuild }}' -eq 'true') {
+            # Test builds used to be called nightly; those go
+            foreach ($t in (gh release list --limit 100 --json tagName --jq '.[].tagName')) {
+              if ($t -like '*-nightly*') { gh release delete $t --cleanup-tag --yes }
+            }
+            $notes = "Test build from ``${{ github.sha }}``. Not a release: try it, but keep the latest release for everyday use. Install it over your current version, or unzip the portable one to keep your settings apart."
+            gh release create "v$v" $files --target '${{ github.sha }}' --title "Displicare v$v (test build)" --notes $notes --prerelease --latest=false
           } else {
             gh release create "v$v" $files --title "Displicare v$v" --generate-notes
           }

@@ -7,7 +7,7 @@
     installer, generates SHA256 checksums, and safely archives the release in dist/v<Version>/
     so earlier versions are permanently preserved.
 .PARAMETER Version
-    The version tag to build (e.g. "2.0.0", or "2.4.6-nightly.1" for a test build).
+    The version tag to build (e.g. "2.0.0", or "2.4.6-test.1" for a test build).
 .PARAMETER Force
     Overwrites an existing version archive if it already exists.
 .EXAMPLE
@@ -45,7 +45,7 @@ if ([string]::IsNullOrWhiteSpace($cleanVersion)) {
     exit 1
 }
 
-# A pre-release such as 2.4.6-nightly.1: the numbers go into the assembly version, the whole text into
+# A pre-release such as 2.4.6-test.1: the numbers go into the assembly version, the whole text into
 # the file names and the version the app shows
 $label = ""
 $dash = $cleanVersion.IndexOf('-')
