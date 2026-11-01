@@ -15,6 +15,7 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Xml" />
     <Reference Include="WindowsBase" />
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
@@ -35,6 +36,7 @@
     <Compile Include="ConfigTests.cs" />
     <Compile Include="HardwareTestTests.cs" />
     <Compile Include="RoomsTests.cs" />
+    <Compile Include="SetupTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

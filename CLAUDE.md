@@ -47,6 +47,8 @@ The app changes real display state: the monitor backlight (DDC/CI), the GPU gamm
 
 ## Room switching
 
+> **Being replaced by setups (2.5.0, branch `setups`):** named profiles of any screens plus a panic shortcut; plan and steps in `docs/setups-plan.md`. So far only the model and migration exist (`Rooms/Setup.cs`: `KnownScreen`, `Setup`, `SetupMigration` rooms ↔ setups, `Sanitize`), not wired in; everything below still describes how switching works.
+
 Optional feature, **off by default** (`RoomsEnabled`; toggle in Displays > General Settings). For a PC wired to TVs in other rooms: every connected screen becomes a room; switching makes it the only (primary) display with its resolution, refresh, HDR and sound, plus any screens the room also turns on. With it off, nothing runs: no hotkeys, no pipe, no audio notifications, no controller polling.
 
 - Code: `Rooms\` (`LayoutEngine` = CCD `SetDisplayConfig` with LUID/target remapping and a rebuilt-topology fallback; `Edid` = mode list from EDID base/CTA VICs/DisplayID; `RoomManager` = discovery, switching, learning; `RoomsView`/`RoomsWindow` = UI), `MainWindow.Rooms.cs` (tab + toggle), small hooks in `MainWindow.xaml` and `MainWindow.DisplayEvents.cs`, `App.xaml.cs` (`--room <name>`), `TrayManager.cs`, `ConfigManager.cs` (`Room` list, sanitized in `SanitizeRooms`).
