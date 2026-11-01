@@ -134,7 +134,7 @@ namespace Displicare.Rooms
             var title = RoomsView.Label("ROOMS", 15, true, RoomsView.TextPrimary);
             title.FontWeight = FontWeights.Bold;
             titles.Children.Add(title);
-            titles.Children.Add(RoomsView.Label("Displicare · one screen at a time, with its own resolution, HDR and sound", 11, false, RoomsView.TextMuted));
+            titles.Children.Add(RoomsView.Label("Displicare · your screens, alone or together, each room with its own resolution, HDR and sound", 11, false, RoomsView.TextMuted));
             Grid.SetColumn(titles, 1);
             grid.Children.Add(titles);
 
@@ -173,17 +173,31 @@ namespace Displicare.Rooms
             }
             var statuses = rooms.Statuses();
             RoomStatus selected = null;
-            foreach (var s in statuses) if (s.Room.Key == selectedKey) selected = s;
+            foreach (var s in statuses) if (s.Setup.Id == selectedKey) selected = s;
             if (selected == null)
             {
                 foreach (var s in statuses) if (s.Active) selected = s;
                 if (selected == null && statuses.Count > 0) selected = statuses[0];
-                if (selected != null) selectedKey = selected.Room.Key;
+                if (selected != null) selectedKey = selected.Setup.Id;
             }
 
             listHost.Children.Clear();
             listHost.Children.Add(RoomsView.SectionLabel("ROOMS"));
             foreach (var s in statuses) listHost.Children.Add(Tile(s, s == selected));
+
+            // What you see is what you save: arrange the screens in Windows, then keep that as a room
+            var save = view.Pill("+  Save the screens on now as a room");
+            save.HorizontalAlignment = HorizontalAlignment.Stretch;
+            save.Margin = new Thickness(0, 0, 0, 4);
+            save.IsEnabled = !rooms.Busy;
+            save.ToolTip = "Turn on the screens you want together and arrange them in Windows Settings > Display; this keeps exactly that (which screens, where, resolution and HDR) as a new room you can switch to.";
+            save.Click += (o, e) =>
+            {
+                var added = rooms.SaveCurrentLayout();
+                if (added != null) Select(added.Id);
+                else view.Notify("Couldn't save the screens", "No screen is on, or a stream or a switch is running.", true);
+            };
+            listHost.Children.Add(save);
             if (statuses.Count == 0)
                 listHost.Children.Add(RoomsView.Label("No screens found yet. Connected TVs and monitors show up here on their own.", 11.5, false, RoomsView.TextMuted));
             listHost.Children.Add(RoomsView.SectionLabel("ALL ROOMS"));
@@ -203,7 +217,7 @@ namespace Displicare.Rooms
             tile.BorderBrush = isSelected ? RoomsView.Accent : RoomsView.CardBorder;
             tile.BorderThickness = new Thickness(isSelected ? 1.5 : 1);
             tile.Cursor = Cursors.Hand;
-            tile.Opacity = s.Room.Hidden ? 0.55 : 1;
+            tile.Opacity = s.Setup.Hidden ? 0.55 : 1;
 
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -217,7 +231,7 @@ namespace Displicare.Rooms
             var top = new Grid();
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var name = RoomsView.Label(s.Room.Name + (s.Room.Hidden ? " (hidden)" : ""), 13, true, RoomsView.TextPrimary);
+            var name = RoomsView.Label(s.Setup.Name + (s.Setup.Hidden ? " (hidden)" : ""), 13, true, RoomsView.TextPrimary);
             name.TextTrimming = TextTrimming.CharacterEllipsis;
             name.TextWrapping = TextWrapping.NoWrap;
             top.Children.Add(name);
@@ -226,12 +240,12 @@ namespace Displicare.Rooms
             Grid.SetColumn(badge, 1);
             top.Children.Add(badge);
             text.Children.Add(top);
-            text.Children.Add(RoomsView.Label(RoomsView.Summary(s.Room), 11, false, RoomsView.TextMuted));
+            text.Children.Add(RoomsView.Label(RoomsView.Summary(s), 11, false, RoomsView.TextMuted));
             Grid.SetColumn(text, 1);
             grid.Children.Add(text);
             tile.Child = grid;
 
-            string key = s.Room.Key;
+            string key = s.Setup.Id;
             tile.MouseLeftButtonUp += (o, e) => Select(key);
             return tile;
         }
@@ -251,7 +265,7 @@ namespace Displicare.Rooms
 
             var titles = new StackPanel();
             titles.VerticalAlignment = VerticalAlignment.Center;
-            var name = RoomsView.Label(s.Room.Name, 20, true, RoomsView.TextPrimary);
+            var name = RoomsView.Label(s.Setup.Name, 20, true, RoomsView.TextPrimary);
             name.FontWeight = FontWeights.Bold;
             titles.Children.Add(name);
             titles.Children.Add(RoomsView.Label(RoomsView.Details(s, rooms.Settings.RoomController), 11.5, false, RoomsView.TextMuted));

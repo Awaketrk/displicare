@@ -27,7 +27,7 @@ namespace Displicare
             {
                 Dispatcher.BeginInvoke((Action)(() =>
                 {
-                    if (_rooms != null) _rooms.SwitchTo(_rooms.FindByKey(key), false);
+                    if (_rooms != null) _rooms.SwitchTo(_rooms.FindSetupById(key), false);
                 }));
             };
             _tray.OnRoomsWindowRequested += () => Dispatcher.BeginInvoke((Action)OpenRoomsWindow);
@@ -109,7 +109,7 @@ namespace Displicare
                 _pendingRoomCommand = room;
                 return;
             }
-            var target = _rooms.FindRoom(room);
+            var target = _rooms.FindSetup(room);
             if (target == null) _tray.ShowBalloon("No room called \"" + room + "\"", "", true);
             else _rooms.SwitchTo(target, false);
         }
@@ -135,13 +135,13 @@ namespace Displicare
 
             var menu = new List<Tuple<string, string, bool, bool>>();
             foreach (var s in statuses)
-                if (!s.Room.Hidden) menu.Add(Tuple.Create(s.Room.Name, s.Room.Key, s.Active, s.Connected));
+                if (!s.Setup.Hidden) menu.Add(Tuple.Create(s.Setup.Name, s.Setup.Id, s.Active, s.Connected));
             _tray.UpdateRoomsMenu(menu, _rooms.Busy);
 
             StackRooms.Children.Clear();
             var intro = new StackPanel();
             intro.Children.Add(RoomsView.Label("Rooms", 13, true, RoomsView.TextPrimary));
-            var text = RoomsView.Label("Every connected screen is a room. Switching makes it the only screen, with the resolution, HDR and sound you use there.", 11, false, RoomsView.TextMuted);
+            var text = RoomsView.Label("Every connected screen is a room, and a room can also turn on several screens together. Switching turns on its screens, with the resolution, HDR and sound you use there.", 11, false, RoomsView.TextMuted);
             text.Margin = new Thickness(0, 4, 0, 12);
             intro.Children.Add(text);
             var open = _roomsView.Pill("⚙  Room settings…");
@@ -150,7 +150,7 @@ namespace Displicare
             intro.Children.Add(open);
             StackRooms.Children.Add(_roomsView.Card(intro, false));
 
-            foreach (var s in statuses) if (!s.Room.Hidden) StackRooms.Children.Add(_roomsView.SwitchCard(s));
+            foreach (var s in statuses) if (!s.Setup.Hidden) StackRooms.Children.Add(_roomsView.SwitchCard(s));
         }
     }
 }

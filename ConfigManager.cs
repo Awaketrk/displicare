@@ -198,10 +198,26 @@ namespace Displicare
         [DataMember]
         public bool RoomsEnabled { get; set; }
 
+        /// <summary>
+        /// Rooms as 2.4.x reads them. Since setups, written from <see cref="KnownScreens"/> and <see cref="Setups"/> on every
+        /// save (so a downgrade still works) and read only to make setups from on the first start.
+        /// </summary>
         [DataMember]
         public List<Room> Rooms { get; set; }
 
-        /// <summary>Room the home hotkey switches to without asking; empty = the first room.</summary>
+        /// <summary>The monitors room switching has seen. Null until rooms were turned into setups.</summary>
+        [DataMember]
+        public List<KnownScreen> KnownScreens { get; set; }
+
+        /// <summary>The profiles to switch between: any screens together. Null until rooms were turned into setups.</summary>
+        [DataMember]
+        public List<Setup> Setups { get; set; }
+
+        /// <summary>Where the home hotkey goes without asking: the way back from anywhere.</summary>
+        [DataMember]
+        public string SafeSetupId { get; set; }
+
+        /// <summary>Room the home hotkey switches to without asking; empty = the first room. 2.4.x's; see SafeSetupId.</summary>
         [DataMember]
         public string RoomHomeKey { get; set; }
 
@@ -460,7 +476,36 @@ namespace Displicare
             }
 
             SanitizeRooms(settings);
+            EnsureSetups(settings);
             return settings;
+        }
+
+        /// <summary>
+        /// Makes setups from rooms the first time (each room a known screen plus a one-screen setup; the home room the safe
+        /// setup), then keeps them valid.
+        /// </summary>
+        internal static void EnsureSetups(AppSettings settings)
+        {
+            if (settings.KnownScreens == null || settings.Setups == null)
+            {
+                List<KnownScreen> screens;
+                List<Setup> setups;
+                string safe;
+                Rooms.SetupMigration.FromRooms(settings.Rooms, settings.RoomHomeKey, out screens, out setups, out safe);
+                settings.KnownScreens = screens;
+                settings.Setups = setups;
+                settings.SafeSetupId = safe;
+            }
+            settings.SafeSetupId = Rooms.SetupMigration.Sanitize(settings.KnownScreens, settings.Setups, settings.SafeSetupId);
+        }
+
+        /// <summary>The room list and home room 2.4.x reads, from the setups.</summary>
+        internal static void WriteRoomsForDowngrade(AppSettings settings)
+        {
+            if (settings.KnownScreens == null || settings.Setups == null) return;
+            string home;
+            settings.Rooms = Rooms.SetupMigration.ToRooms(settings.KnownScreens, settings.Setups, settings.SafeSetupId, out home);
+            settings.RoomHomeKey = home;
         }
 
         /// <summary>
@@ -561,6 +606,7 @@ namespace Displicare
             catch { }
 
             AppSettings def = new AppSettings();
+            EnsureSetups(def);
             def.StartWithWindows = IsRunOnStartupEnabled();
             return def;
         }
@@ -571,6 +617,7 @@ namespace Displicare
             {
                 string path = GetConfigPath();
                 string tmpPath = path + ".tmp";
+                WriteRoomsForDowngrade(settings);
 
                 using (MemoryStream ms = new MemoryStream())
                 {

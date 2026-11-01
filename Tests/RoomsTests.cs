@@ -255,27 +255,24 @@ namespace Displicare.Tests
         [Test]
         public static void RoomProfileFollowsRoomSettings()
         {
-            var room = new Room();
+            var room = new KnownScreen();
             room.Key = "GSM82CD";
-            room.Name = "Living room";
             room.DevicePath = Lg("UID1", NvidiaPath).DevicePath;
             room.DisplayName = "LG TV SSCR2";
             room.EdidManufacturer = 0x6D1E;
             room.EdidProduct = 0x82CD;
 
-            var p = RoomManager.BuildProfile(room, new DisplayMode(3840, 2160, 60));
+            var p = RoomManager.BuildProfile(room, new DisplayMode(3840, 2160, 60), "Living room");
             Assert.Equal(2, p.Displays[0].Hdr, "HDR auto");
             Assert.Equal(0, p.Displays[0].Width, "best mode");
             Assert.Equal(3840, p.Displays[0].NativeWidth, "native size passed on");
             Assert.True(!p.AudioFollowsDisplay && p.AudioId == null, "sound is set by the room manager, not the layout");
             Assert.True(p.Displays[0].Primary, "main screen");
+            Assert.Equal("Living room", p.Name, "named after the room");
 
             room.Hdr = Room.HdrOff;
-            room.Audio = Room.AudioDevice;
-            room.AudioId = "{x}";
-            room.AudioName = "Headphones";
             room.Width = 3840; room.Height = 2160; room.RefreshHz = 120;
-            p = RoomManager.BuildProfile(room, null);
+            p = RoomManager.BuildProfile(room, null, "Living room");
             Assert.Equal(0, p.Displays[0].Hdr, "HDR off");
             Assert.Equal(3840, p.Displays[0].Width, "chosen size");
             Assert.Equal(120.0, p.Displays[0].RefreshHz, "refresh");
@@ -469,16 +466,16 @@ namespace Displicare.Tests
         [Test]
         public static void RoomsGetControllerDirections()
         {
-            Func<string, Room> make = key => { var r = new Room(); r.Key = key; r.Name = key; return r; };
+            Func<string, Setup> make = key => { var r = new Setup(); r.Id = "room:" + key; r.Name = key; r.Screens.Add(key); return r; };
             var desk = make("GBT3214");
             var lg = make("GSM82CD");
             var tcl = make("TCL9653");
-            var rooms = new List<Room> { lg, desk, tcl };
-            Assert.True(RoomManager.AssignPadDirections(rooms, "GBT3214"), "assigned");
+            var rooms = new List<Setup> { lg, desk, tcl };
+            Assert.True(RoomManager.AssignPadDirections(rooms, "room:GBT3214"), "assigned");
             Assert.Equal(Room.PadUp, desk.PadDirection, "home is up");
             Assert.Equal(Room.PadRight, lg.PadDirection, "first other room is right");
             Assert.Equal(Room.PadLeft, tcl.PadDirection, "next is left");
-            Assert.True(!RoomManager.AssignPadDirections(rooms, "GBT3214"), "nothing more to do");
+            Assert.True(!RoomManager.AssignPadDirections(rooms, "room:GBT3214"), "nothing more to do");
 
             var phone = make("SAM76C1");
             phone.Hidden = true;
@@ -486,7 +483,7 @@ namespace Displicare.Tests
             lg.PadDirection = ""; // the user chose none
             rooms.Add(phone);
             rooms.Add(portable);
-            RoomManager.AssignPadDirections(rooms, "GBT3214");
+            RoomManager.AssignPadDirections(rooms, "room:GBT3214");
             Assert.Equal("", lg.PadDirection, "none stays none");
             Assert.True(phone.PadDirection == null, "hidden rooms get none");
             Assert.Equal(Room.PadRight, portable.PadDirection, "a new room takes the first free direction");
@@ -605,58 +602,63 @@ namespace Displicare.Tests
             return t;
         }
 
-        static Room RoomFor(string key, params string[] alsoOn)
+        static Setup SetupFor(string id, params string[] screens)
         {
-            var r = new Room();
-            r.Key = key;
-            r.Name = key;
-            r.AlsoOn = alsoOn.Length > 0 ? new List<string>(alsoOn) : null;
-            return r;
+            var s = new Setup();
+            s.Id = id;
+            s.Name = id;
+            s.Screens.AddRange(screens);
+            return s;
+        }
+
+        static KnownScreen ScreenFor(string key)
+        {
+            var s = new KnownScreen();
+            s.Key = key;
+            s.DisplayName = key;
+            s.DevicePath = Screen(key).DevicePath;
+            return s;
         }
 
         [Test]
-        public static void RoomWithSeveralScreensIsOnScreen()
+        public static void SetupWithSeveralScreensIsOnScreen()
         {
             var desk = new List<TargetInfo> { On(1, "GBT3214"), On(2, "DEL4321") };
-            var home = RoomFor("GBT3214", "DEL4321");
-            var rooms = new List<Room> { home, RoomFor("DEL4321"), RoomFor("GSM82CD") };
-            Assert.Equal("GBT3214", RoomManager.ActiveRoomKey(desk, rooms, "GBT3214"), "home and its second screen");
-            Assert.True(RoomManager.ActiveRoomKey(desk, new List<Room> { RoomFor("GBT3214") }, "GBT3214") == null, "no room has these screens");
+            var setups = new List<Setup> { SetupFor("aorus", "GBT3214"), SetupFor("dell", "DEL4321"), SetupFor("desk", "GBT3214", "DEL4321"), SetupFor("tv", "GSM82CD") };
+            Assert.Equal("desk", RoomManager.ActiveSetupId(desk, setups, "GBT3214"), "both desk screens: the desk");
+            Assert.Equal("aorus", RoomManager.ActiveSetupId(new List<TargetInfo> { On(1, "GBT3214") }, setups, "GBT3214"), "one screen: its own room");
             var tvToo = new List<TargetInfo> { On(1, "GBT3214"), On(2, "DEL4321"), On(3, "GSM82CD") };
-            Assert.True(RoomManager.ActiveRoomKey(tvToo, rooms, "GBT3214") == null, "an extra screen on");
-            Assert.Equal("GSM82CD", RoomManager.ActiveRoomKey(new List<TargetInfo> { On(3, "GSM82CD") }, rooms, null), "one screen as before");
+            Assert.True(RoomManager.ActiveSetupId(tvToo, setups, "GBT3214") == null, "no room has these screens");
 
-            rooms.Add(RoomFor("DEL4321", "GBT3214"));
-            rooms.RemoveAt(1);
-            Assert.Equal("DEL4321", RoomManager.ActiveRoomKey(desk, rooms, "DEL4321"), "same screens: the one on the main screen");
+            setups.Add(SetupFor("dell desk", "DEL4321", "GBT3214"));
+            Assert.Equal("dell desk", RoomManager.ActiveSetupId(desk, setups, "DEL4321"), "same screens: the one with that main screen");
+            setups[2].Hidden = true;
+            Assert.Equal("dell desk", RoomManager.ActiveSetupId(desk, setups, "GSM82CD"), "a hidden room comes last");
+            Assert.True(RoomManager.ActiveSetupId(new List<TargetInfo>(), setups, null) == null, "nothing on");
         }
 
         [Test]
-        public static void LeavingTheDeskFirstTimeKeepsItsScreens()
+        public static void SetupsOnlyChangeWhenTheUserChangesThem()
         {
-            var desk = new List<TargetInfo> { On(1, "GBT3214"), On(2, "DEL4321") };
-            var home = RoomFor("GBT3214");
-            Assert.True(RoomManager.PickUpDesk(home, RoomFor("GSM82CD"), desk), "off to the TV");
-            Assert.Equal(1, home.AlsoOn.Count, "one other screen");
-            Assert.Equal("DEL4321", home.AlsoOn[0], "the second desk screen");
-
-            var chosen = RoomFor("GBT3214");
-            chosen.AlsoOn = new List<string>();
-            Assert.True(!RoomManager.PickUpDesk(chosen, RoomFor("GSM82CD"), desk), "screens already chosen in Room settings");
-            Assert.True(!RoomManager.PickUpDesk(RoomFor("GBT3214"), RoomFor("DEL4321"), desk), "one desk screen on its own isn't leaving");
-            Assert.True(!RoomManager.PickUpDesk(RoomFor("GBT3214"), RoomFor("GSM82CD"), new List<TargetInfo> { On(1, "GBT3214") }), "home screen alone");
-            Assert.True(!RoomManager.PickUpDesk(RoomFor("GBT3214"), RoomFor("TCL9653"), new List<TargetInfo> { On(3, "GSM82CD") }), "leaving another room");
+            // The desk-on-first-leave pick-up and background layout learning from PR #1 are gone: no RoomManager call
+            // takes screens or arrangements by itself, so a two-screen desk stays exactly as the user saved it.
+            var desk = SetupFor("desk", "GBT3214", "DEL4321");
+            var saved = new List<string>(desk.Screens);
+            var setups = new List<Setup> { desk, SetupFor("tv", "GSM82CD") };
+            RoomManager.AssignPadDirections(setups, "desk");
+            Assert.Equal(string.Join(",", saved.ToArray()), string.Join(",", desk.Screens.ToArray()), "screens untouched");
+            Assert.True(desk.Layout == null, "no arrangement until the user saves one");
         }
 
         [Test]
         public static void ScreensWithoutALearnedLayoutGoSideBySide()
         {
-            var main = RoomFor("GBT3214", "DEL4321", "GSM82CD");
-            var dell = RoomFor("DEL4321");
+            var main = ScreenFor("GBT3214");
+            var dell = ScreenFor("DEL4321");
             dell.Width = 2560; dell.Height = 1440;
-            var lg = RoomFor("GSM82CD");
+            var lg = ScreenFor("GSM82CD");
             lg.Hdr = Room.HdrOff;
-            var p = RoomManager.BuildCombo(main, new DisplayMode(3840, 2160, 240), new List<Room> { dell, lg },
+            var p = RoomManager.BuildCombo("Desk", main, new DisplayMode(3840, 2160, 240), new List<KnownScreen> { dell, lg },
                 new List<DisplayMode?> { null, new DisplayMode(3840, 2160, 120) });
             Assert.Equal(3, p.Displays.Count, "three screens");
             Assert.True(p.Displays[0].Primary && p.Displays[0].X == 0, "this room's screen is the main one at 0,0");

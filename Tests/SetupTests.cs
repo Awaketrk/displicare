@@ -185,6 +185,35 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void OldSettingsTurnIntoSetupsOnLoad()
+        {
+            var s = ConfigManager.Parse("{\"RoomsEnabled\":true,\"RoomHomeKey\":\"GBT3214\",\"Rooms\":[" +
+                "{\"Key\":\"GBT3214\",\"Name\":\"Desk\",\"Hotkey\":\"Ctrl+Alt+1\",\"PadDirection\":\"up\"}," +
+                "{\"Key\":\"GSM82CD\",\"Name\":\"Living room\",\"Launcher\":\"bigpicture\",\"RefreshHz\":120}]}");
+            Assert.Equal(2, s.Setups.Count, "a setup per room");
+            Assert.Equal(2, s.KnownScreens.Count, "a screen per room");
+            Assert.Equal("room:GBT3214", s.SafeSetupId, "home becomes the safe setup");
+
+            ConfigManager.WriteRoomsForDowngrade(s);
+            Assert.Equal("GBT3214", s.RoomHomeKey, "home written back");
+            Assert.Equal(Room.LaunchBigPicture, s.Rooms.Find(r => r.Key == "GSM82CD").Launcher, "rooms written back");
+            Assert.Equal(120, s.Rooms.Find(r => r.Key == "GSM82CD").RefreshHz, "with their screen's mode");
+        }
+
+        [Test]
+        public static void ADeletedSetupStaysDeleted()
+        {
+            // The TV's own setup was deleted; its screen is still known, so loading doesn't bring the setup back
+            // (and discovery only gives a screen its own setup the first time it sees the screen).
+            var s = ConfigManager.Parse("{\"KnownScreens\":[{\"Key\":\"GBT3214\"},{\"Key\":\"GSM82CD\"}]," +
+                "\"Setups\":[{\"Id\":\"room:GBT3214\",\"Name\":\"Desk\",\"Screens\":[\"GBT3214\"]}],\"SafeSetupId\":\"room:GBT3214\"}");
+            Assert.Equal(1, s.Setups.Count, "still one setup");
+            Assert.Equal(2, s.KnownScreens.Count, "both screens known");
+            ConfigManager.WriteRoomsForDowngrade(s);
+            Assert.Equal(2, s.Rooms.Count, "2.4.x still sees both screens as rooms");
+        }
+
+        [Test]
         public static void SetupsSurviveSettingsJson()
         {
             List<KnownScreen> screens;

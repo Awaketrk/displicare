@@ -37,6 +37,12 @@ namespace Displicare.Rooms
         /// <summary>Set by the host: rebuild once the text box being edited loses focus.</summary>
         public Action EditFinished;
 
+        /// <summary>Shows a tray balloon (title, text, warning).</summary>
+        public void Notify(string title, string text, bool warning)
+        {
+            if (notify != null) notify(title, text, warning);
+        }
+
         public static Brush MakeBrush(string hex)
         {
             var b = (Brush)new BrushConverter().ConvertFromString(hex);
@@ -153,31 +159,42 @@ namespace Displicare.Rooms
 
         public static string Icon(RoomStatus s)
         {
-            string name = ((s.Room.DisplayName ?? "") + " " + (s.Room.Name ?? "")).ToUpperInvariant();
+            if (s.Setup.Screens.Count > 1) return "🖥️🖥️";
+            string name = ((s.Screen != null ? s.Screen.DisplayName : "") + " " + (s.Setup.Name ?? "")).ToUpperInvariant();
             bool tv = name.Contains("TV") || (s.Connection ?? "").StartsWith("HDMI");
             return tv ? "📺" : "🖥️";
         }
 
         /// <summary>"3840×2160 @ 120 Hz, HDR auto" or "Native resolution, highest refresh".</summary>
-        public static string Summary(Room room)
+        public static string Summary(KnownScreen screen)
         {
-            string mode = room.Width > 0 ? room.Width + "×" + room.Height : "Native resolution";
-            mode += room.RefreshHz > 0 ? " @ " + room.RefreshHz + " Hz" : ", highest refresh";
-            if (room.Hdr == Room.HdrOn) mode += ", HDR";
-            else if (room.Hdr == Room.HdrAuto) mode += ", HDR auto";
+            if (screen == null) return "Screen not known";
+            string mode = screen.Width > 0 ? screen.Width + "×" + screen.Height : "Native resolution";
+            mode += screen.RefreshHz > 0 ? " @ " + screen.RefreshHz + " Hz" : ", highest refresh";
+            if (screen.Hdr == Room.HdrOn) mode += ", HDR";
+            else if (screen.Hdr == Room.HdrAuto) mode += ", HDR auto";
             return mode;
+        }
+
+        /// <summary>The main screen's mode, or for several screens "AORUS FO32U2 + Dell, saved arrangement".</summary>
+        public static string Summary(RoomStatus s)
+        {
+            if (s.Setup.Screens.Count < 2) return Summary(s.Screen);
+            return RoomManager.ScreenName(s.Screen) + " + " + s.AlsoOnNames
+                + (s.Setup.Layout != null ? ", saved arrangement" : ", side by side");
         }
 
         /// <param name="controller">Controller switching is on: show the room's View + D-pad combo.</param>
         public static string Details(RoomStatus s, bool controller)
         {
             var parts = new List<string>();
-            if (!string.IsNullOrEmpty(s.Room.DisplayName) && s.Room.DisplayName != s.Room.Name) parts.Add(s.Room.DisplayName);
+            string screenName = s.Screen != null ? s.Screen.DisplayName : null;
+            if (s.Setup.Screens.Count < 2 && !string.IsNullOrEmpty(screenName) && screenName != s.Setup.Name) parts.Add(screenName);
             if (!string.IsNullOrEmpty(s.Connection)) parts.Add(s.Connection);
-            parts.Add(Summary(s.Room));
-            if (!string.IsNullOrEmpty(s.AlsoOnNames)) parts.Add("with " + s.AlsoOnNames);
-            if (!string.IsNullOrEmpty(s.Room.Hotkey)) parts.Add(s.Room.Hotkey);
-            string pad = RoomManager.PadLabel(s.Room.PadDirection);
+            parts.Add(Summary(s));
+            if (!string.IsNullOrEmpty(s.MissingNames)) parts.Add(s.MissingNames + " not connected");
+            if (!string.IsNullOrEmpty(s.Setup.Hotkey)) parts.Add(s.Setup.Hotkey);
+            string pad = RoomManager.PadLabel(s.Setup.PadDirection);
             if (pad != null && controller) parts.Add(pad);
             return string.Join("  ·  ", parts.ToArray());
         }
@@ -185,14 +202,14 @@ namespace Displicare.Rooms
         public Button SwitchButton(RoomStatus s)
         {
             var go = Pill(s.Active ? "On screen now" : rooms.Busy ? "Switching…" : "Switch here");
-            go.IsEnabled = s.Connected && !s.Active && !rooms.Busy && !s.Room.Hidden;
+            go.IsEnabled = s.Connected && !s.Active && !rooms.Busy && !s.Setup.Hidden;
             if (go.IsEnabled)
             {
                 go.Background = AccentDark;
                 go.BorderBrush = Accent;
             }
-            var room = s.Room;
-            go.Click += (o, e) => rooms.SwitchTo(room, false);
+            var setup = s.Setup;
+            go.Click += (o, e) => rooms.SwitchTo(setup, false);
             return go;
         }
 
@@ -205,7 +222,7 @@ namespace Displicare.Rooms
             var top = new Grid();
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var name = Label(Icon(s) + "  " + s.Room.Name, 14, true, TextPrimary);
+            var name = Label(Icon(s) + "  " + s.Setup.Name, 14, true, TextPrimary);
             name.FontWeight = FontWeights.Bold;
             top.Children.Add(name);
             var badge = Badge(s);
@@ -225,26 +242,48 @@ namespace Displicare.Rooms
 
         // ---------------------------------------------------------------- Rooms window: settings
 
-        /// <summary>The selected room's settings: name, mode, HDR, sound, hotkey, controller, launcher, hide, shortcut.</summary>
+        /// <summary>
+        /// The selected room's settings: name, its main screen's mode and HDR, other screens and their arrangement, sound,
+        /// hotkey, controller, launcher, hide, shortcut, delete.
+        /// </summary>
         public StackPanel RoomSettings(RoomStatus s)
         {
-            var room = s.Room;
+            var setup = s.Setup;
             var host = new StackPanel();
             const double labelWidth = 130;
 
-            var name = TextField(room.Name, ConfigManager.MaxRoomNameLength, "Name shown in Displicare, the tray and shortcuts");
+            var name = TextField(setup.Name, ConfigManager.MaxRoomNameLength, "Name shown in Displicare, the tray and shortcuts");
             name.LostKeyboardFocus += (o, e) =>
             {
                 string text = name.Text.Trim();
-                if (text.Length > 0 && text != room.Name)
+                if (text.Length > 0 && text != setup.Name)
                 {
-                    room.Name = text;
-                    rooms.RoomEdited(room, false);
+                    setup.Name = text;
+                    rooms.SetupEdited(setup, false);
                 }
-                else name.Text = room.Name;
+                else name.Text = setup.Name;
                 Finished();
             };
             host.Children.Add(Row("Name", name, labelWidth));
+
+            var room = s.Screen; // the main screen: its own mode and HDR, shared by every room it's in
+            if (room != null) ScreenSettings(s, host, labelWidth);
+            OtherScreens(s, host, labelWidth);
+            SetupOptions(s, host, labelWidth);
+            return host;
+        }
+
+        /// <summary>Resolution, refresh rate and HDR of the room's main screen.</summary>
+        void ScreenSettings(RoomStatus s, StackPanel host, double labelWidth)
+        {
+            var room = s.Screen;
+            bool several = s.Setup.Screens.Count > 1;
+            if (several)
+            {
+                var intro = Label("The main screen, " + RoomManager.ScreenName(room) + ", uses these whenever it's on without a saved arrangement, in every room it's part of.", 10.5, false, TextMuted);
+                intro.Margin = new Thickness(labelWidth, -2, 0, 8);
+                host.Children.Add(intro);
+            }
 
             // Resolution: native, or one the display offers
             var res = Combo();
@@ -292,14 +331,14 @@ namespace Displicare.Rooms
                 }
                 room.RefreshHz = 0;
                 fillHz();
-                rooms.RoomEdited(room, true);
+                rooms.ScreenEdited(room, true);
             };
             hz.SelectionChanged += (o, e) =>
             {
                 var sel = hz.SelectedItem as ComboBoxItem;
                 if (sel == null || (int)sel.Tag == room.RefreshHz) return;
                 room.RefreshHz = (int)sel.Tag;
-                rooms.RoomEdited(room, true);
+                rooms.ScreenEdited(room, true);
             };
             host.Children.Add(Row("Refresh rate", hz, labelWidth));
             if (s.ModesFromEdid)
@@ -319,35 +358,66 @@ namespace Displicare.Rooms
                 var sel = hdr.SelectedItem as ComboBoxItem;
                 if (sel == null) return;
                 room.Hdr = (string)sel.Tag;
-                rooms.RoomEdited(room, false);
+                rooms.ScreenEdited(room, false);
             };
             host.Children.Add(Row("HDR", hdr, labelWidth));
+        }
 
-            // Other screens to turn on next to this one: any combination
+        /// <summary>The other screens the room turns on, and their saved arrangement.</summary>
+        void OtherScreens(RoomStatus s, StackPanel host, double labelWidth)
+        {
+            var setup = s.Setup;
             var others = new StackPanel();
-            foreach (var other in rooms.Settings.Rooms)
+            foreach (var other in rooms.Settings.KnownScreens)
             {
-                if (other == room) continue;
+                if (string.Equals(other.Key, setup.MainScreen, StringComparison.OrdinalIgnoreCase)) continue;
                 var peer = other;
-                bool on = room.AlsoOn != null && room.AlsoOn.Exists(k => string.Equals(k, peer.Key, StringComparison.OrdinalIgnoreCase));
-                var tick = Toggle(peer.Name, on);
+                bool on = setup.Screens.Exists(k => string.Equals(k, peer.Key, StringComparison.OrdinalIgnoreCase));
+                var tick = Toggle(RoomManager.ScreenName(peer), on);
                 tick.Margin = new Thickness(0, 2, 0, 2);
                 tick.Click += (sender, e) =>
                 {
-                    if (room.AlsoOn == null) room.AlsoOn = new List<string>();
-                    room.AlsoOn.RemoveAll(k => string.Equals(k, peer.Key, StringComparison.OrdinalIgnoreCase));
-                    if (tick.IsChecked == true && room.AlsoOn.Count < ConfigManager.MaxAlsoOn) room.AlsoOn.Add(peer.Key);
-                    tick.IsChecked = room.AlsoOn.Contains(peer.Key);
-                    rooms.RoomEdited(room, true); // a new set of screens asks to keep it again
+                    setup.Screens.RemoveAll(k => string.Equals(k, peer.Key, StringComparison.OrdinalIgnoreCase));
+                    if (tick.IsChecked == true && setup.Screens.Count <= ConfigManager.MaxAlsoOn) setup.Screens.Add(peer.Key);
+                    tick.IsChecked = setup.Screens.Contains(peer.Key);
+                    rooms.SetupEdited(setup, true); // a new set of screens asks to keep it again
                 };
                 others.Children.Add(tick);
             }
-            if (others.Children.Count > 0)
+            if (others.Children.Count == 0) return;
+            var alsoRow = Row("Also turn on", others, labelWidth);
+            alsoRow.ToolTip = "Screens that turn on together with the main one when you switch here, in any combination. The main screen stays the main one. Screens that aren't connected are left out.";
+            host.Children.Add(alsoRow);
+            if (setup.Screens.Count < 2) return;
+
+            // The arrangement: saved by the user, never learned behind their back
+            var arrangement = new StackPanel();
+            bool onNow = rooms.ScreensAreOn(setup);
+            string state = setup.Layout != null
+                ? "Saved: where each screen goes, its resolution and HDR."
+                : "Not saved yet: the screens go side by side, each with its own resolution and HDR.";
+            var stateText = Label(state, 11, false, TextPrimary);
+            arrangement.Children.Add(stateText);
+            var use = Pill(setup.Layout != null ? "Save the current arrangement instead" : "Use the current arrangement");
+            use.HorizontalAlignment = HorizontalAlignment.Left;
+            use.Margin = new Thickness(0, 6, 0, 0);
+            use.IsEnabled = onNow && !rooms.Busy;
+            use.ToolTip = onNow
+                ? "Takes how these screens are arranged in Windows Settings > Display right now."
+                : "Switch here (or turn on exactly these screens), arrange them in Windows Settings > Display, then save.";
+            use.Click += (o, e) =>
             {
-                var alsoRow = Row("Also turn on", others, labelWidth);
-                alsoRow.ToolTip = "Screens that turn on together with this one when you switch here, in any combination. This screen stays the main one. Arrange them once in Windows Settings > Display with all of them on: Displicare remembers where each one goes, its resolution and HDR. Screens that aren't connected are left out.";
-                host.Children.Add(alsoRow);
-            }
+                if (rooms.UseCurrentArrangement(setup)) use.Content = "Saved";
+                else notify("Couldn't save the arrangement", "Only this room's screens must be on, and no stream running.", true);
+            };
+            arrangement.Children.Add(use);
+            host.Children.Add(Row("Arrangement", arrangement, labelWidth));
+        }
+
+        /// <summary>Sound, hotkey, controller, launcher, hide, the --room shortcut and delete.</summary>
+        void SetupOptions(RoomStatus s, StackPanel host, double labelWidth)
+        {
+            var room = s.Setup;
 
             var sound = Combo();
             sound.Items.Add(Item("This screen's speakers", Room.AudioAuto));
@@ -374,7 +444,7 @@ namespace Displicare.Rooms
                     room.AudioName = (string)sel.Content;
                 }
                 else room.Audio = tag;
-                rooms.RoomEdited(room, false);
+                rooms.SetupEdited(room, false);
             };
             var soundRow = Row("Sound", sound, labelWidth);
             soundRow.ToolTip = "\"This screen's speakers\" uses the TV's HDMI sound, as soon as Windows makes it available. Changing the output in Windows while a room is on screen also updates this.";
@@ -383,7 +453,7 @@ namespace Displicare.Rooms
             host.Children.Add(Row("Hotkey", HotkeyBox(room.Hotkey, keys =>
             {
                 room.Hotkey = keys;
-                rooms.RoomEdited(room, false);
+                rooms.SetupEdited(room, false);
             }), labelWidth));
 
             var pad = Combo();
@@ -397,10 +467,10 @@ namespace Displicare.Rooms
                 string d = (string)sel.Tag;
                 // One room per direction: the room that had it gives it up.
                 if (d.Length > 0)
-                    foreach (var other in rooms.Settings.Rooms)
+                    foreach (var other in rooms.Settings.Setups)
                         if (other != room && other.PadDirection == d) other.PadDirection = "";
                 room.PadDirection = d;
-                rooms.RoomEdited(room, false);
+                rooms.SetupEdited(room, false);
             };
             var padRow = Row("Controller", pad, labelWidth);
             padRow.ToolTip = "Hold View and press this D-pad direction to switch here, even when you can't see a screen: on the couch with the TV still blank, View + its direction brings the picture to it.";
@@ -416,8 +486,7 @@ namespace Displicare.Rooms
                 var sel = launcher.SelectedItem as ComboBoxItem;
                 if (sel == null) return;
                 room.Launcher = (string)sel.Tag;
-                room.OpenBigPicture = room.Launcher == Room.LaunchBigPicture;
-                rooms.RoomEdited(room, false);
+                rooms.SetupEdited(room, false);
             };
             var launcherRow = Row("Open on switch", launcher, labelWidth);
             launcherRow.ToolTip = "Opens when you switch here and closes when you switch to a room that doesn't use it. Xbox mode is Windows 11's full screen Xbox experience (Settings > Gaming); Displicare turns it on and off with its Win + F11 shortcut. While Xbox mode is open it keeps the controller to itself, so View + D-pad can't switch rooms there: leave it from its menu (Xbox button) and View + D-pad works again. Keyboard hotkeys always work.";
@@ -429,7 +498,7 @@ namespace Displicare.Rooms
             hide.Click += (o, e) =>
             {
                 room.Hidden = hide.IsChecked == true;
-                rooms.RoomEdited(room, false);
+                rooms.SetupEdited(room, false);
             };
             host.Children.Add(hide);
 
@@ -460,7 +529,32 @@ namespace Displicare.Rooms
             box.Padding = new Thickness(12, 10, 12, 10);
             box.Child = shortcut;
             host.Children.Add(box);
-            return host;
+
+            // Delete: asks by a second click, no dialog. The screens stay known, so the room doesn't come back by itself.
+            var delete = Pill("Delete this room");
+            delete.HorizontalAlignment = HorizontalAlignment.Left;
+            delete.Margin = new Thickness(0, 14, 0, 0);
+            delete.ToolTip = "Removes this room from the tab, tray, hotkeys and controller. Its screens stay known; it doesn't come back by itself. To make it again, turn on its screens and use \"Save the screens on now as a room\".";
+            bool armed = false;
+            delete.Click += (o, e) =>
+            {
+                if (!armed)
+                {
+                    armed = true;
+                    delete.Content = "Click again to delete \"" + room.Name + "\"";
+                    delete.BorderBrush = Accent;
+                    return;
+                }
+                rooms.DeleteSetup(room);
+            };
+            delete.LostKeyboardFocus += (o, e) =>
+            {
+                if (!armed) return;
+                armed = false;
+                delete.Content = "Delete this room";
+                delete.ClearValue(Control.BorderBrushProperty);
+            };
+            host.Children.Add(delete);
         }
 
         /// <summary>Options for all rooms: when to ask, the home room and its hotkey.</summary>
@@ -479,22 +573,22 @@ namespace Displicare.Rooms
                 var i = ask.SelectedItem as ComboBoxItem;
                 if (i == null) return;
                 settings.RoomAskToKeep = (string)i.Tag;
-                rooms.RoomEdited(null, false);
+                rooms.OptionsEdited();
             };
             var askRow = Row("Ask to keep", ask, labelWidth);
             askRow.ToolTip = "\"Keep this display layout?\" goes back on its own after 15 s without an answer, so a TV that is off can't leave you without a screen. A room also asks again after its resolution or refresh rate changes.";
             stack.Children.Add(askRow);
 
             var home = Combo();
-            foreach (var s in statuses) home.Items.Add(Item(s.Room.Name, s.Room.Key));
-            var homeRoom = rooms.HomeRoom;
-            Select(home, homeRoom != null ? homeRoom.Key : null);
+            foreach (var s in statuses) home.Items.Add(Item(s.Setup.Name, s.Setup.Id));
+            var safe = rooms.SafeSetup;
+            Select(home, safe != null ? safe.Id : null);
             home.SelectionChanged += (s, e) =>
             {
                 var i = home.SelectedItem as ComboBoxItem;
                 if (i == null) return;
-                settings.RoomHomeKey = (string)i.Tag;
-                rooms.RoomEdited(null, false);
+                settings.SafeSetupId = (string)i.Tag;
+                rooms.OptionsEdited();
             };
             var homeRow = Row("Home room", home, labelWidth);
             homeRow.ToolTip = "Where the home hotkey takes you, without asking: the way back from any room.";
@@ -503,7 +597,7 @@ namespace Displicare.Rooms
             stack.Children.Add(Row("Home hotkey", HotkeyBox(settings.RoomHomeHotkey, keys =>
             {
                 settings.RoomHomeHotkey = keys;
-                rooms.RoomEdited(null, false);
+                rooms.OptionsEdited();
             }), labelWidth));
 
             stack.Children.Add(OptionToggle("Switch with a controller: hold View + Menu", settings.RoomController,
@@ -526,7 +620,7 @@ namespace Displicare.Rooms
             toggle.Click += (o, e) =>
             {
                 set(toggle.IsChecked == true);
-                rooms.RoomEdited(null, false);
+                rooms.OptionsEdited();
             };
             return toggle;
         }

@@ -6,10 +6,13 @@ using System.Windows.Threading;
 
 namespace Displicare.Rooms
 {
-    /// <summary>What the Rooms tab and window show for one room.</summary>
+    /// <summary>What the Rooms tab and window show for one setup (shown as a room until the UI is renamed).</summary>
     internal sealed class RoomStatus
     {
-        public Room Room;
+        public Setup Setup;
+        /// <summary>The setup's main screen; its mode, HDR and EDID are what the settings show.</summary>
+        public KnownScreen Screen;
+        /// <summary>The main screen is connected (the others are left out if they aren't).</summary>
         public bool Connected;
         public bool Active;
         /// <summary>e.g. "HDMI · NVIDIA".</summary>
@@ -21,13 +24,17 @@ namespace Displicare.Rooms
         /// <summary>The display's native resolution from its EDID, if known.</summary>
         public DisplayMode? Native;
         public bool HdrCapable;
-        /// <summary>"Dell U2723QE, LG TV SSCR2": the other screens this room turns on, or null.</summary>
+        /// <summary>"Dell U2723QE, LG TV SSCR2": the other screens this setup turns on, or null.</summary>
         public string AlsoOnNames;
+        /// <summary>Those of them that aren't connected now, or null.</summary>
+        public string MissingNames;
     }
 
     /// <summary>
-    /// Room switching: finds a room for every connected display, switches to one (only that display on, as the main
-    /// screen, with its mode, HDR and sound), asks to keep new layouts, and learns the settings used in each room.
+    /// Room switching, on setups: knows every screen it has seen (a new one also gets a setup of its own, once), switches
+    /// to a setup (its screens on, the first as the main one, in its saved arrangement or side by side, with its sound),
+    /// asks to keep new layouts, and learns each screen's mode and HDR while it is on by itself. A setup only changes when
+    /// the user changes it.
     /// Lives on the UI thread; switches run on their own STA thread so the prompt and the 10 s wait for a waking TV
     /// never block Displicare. It reacts to display changes, sound notifications, hotkeys and pipe commands; the only
     /// thing that runs while idle is the controller check (<see cref="Gamepad"/>), and only while that option is on.
@@ -52,7 +59,8 @@ namespace Displicare.Rooms
         readonly AppSettings settings;
         readonly Action save;
         readonly Dispatcher dispatcher;
-        readonly List<string> hotkeyRooms = new List<string>();
+        /// <summary>Setup ids, by hotkey id - <see cref="FirstRoomHotkeyId"/>.</summary>
+        readonly List<string> hotkeySetups = new List<string>();
         readonly HashSet<string> reportedHotkeys = new HashSet<string>();
         readonly Dictionary<string, byte[]> edidCache = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         HotkeyWindow hotkeys;
@@ -70,10 +78,11 @@ namespace Displicare.Rooms
         bool autoHideAfterStream;
         bool afterStreamPending;
         List<TargetInfo> lastTargets = new List<TargetInfo>();
-        string activeKey;
+        /// <summary>The setup whose screens are exactly the ones on, or null.</summary>
+        string activeId;
         bool busy;
         DateTime lastSwitchUtc = DateTime.MinValue;
-        Room pendingAudioRoom;
+        Setup pendingAudioSetup;
         DateTime pendingAudioUntil;
         /// <summary>Our own default-output changes notify us too; those aren't the user's choice to learn.</summary>
         DateTime ignoreAudioChangesUntil;
@@ -90,6 +99,7 @@ namespace Displicare.Rooms
             this.settings = settings;
             this.save = save;
             this.dispatcher = dispatcher;
+            ConfigManager.EnsureSetups(settings);
         }
 
         public bool IsRunning { get { return hotkeys != null; } }
@@ -123,13 +133,13 @@ namespace Displicare.Rooms
         }
 
         /// <summary>
-        /// Rooms learned before "Native" / "Highest" were kept as defaults (2.2.1 test builds) hold the exact mode; turn it
-        /// back into the defaults from the modes the room offered. Same mode, so it doesn't ask to keep again.
+        /// Screens learned before "Native" / "Highest" were kept as defaults (2.2.1 test builds) hold the exact mode; turn it
+        /// back into the defaults from the modes the screen offered. Same mode, so it doesn't ask to keep again.
         /// </summary>
         void TidyLearnedModes()
         {
             bool changed = false;
-            foreach (var room in settings.Rooms)
+            foreach (var room in settings.KnownScreens)
             {
                 if (room.Width <= 0 && room.RefreshHz <= 0) continue;
                 var offered = MergeModes(room.KnownModes, null);
@@ -150,10 +160,17 @@ namespace Displicare.Rooms
                 room.Width = width;
                 room.Height = height;
                 room.RefreshHz = hz;
-                RoomLog.Write("\"" + room.Name + "\" now uses " + RoomsView.Summary(room));
+                RoomLog.Write(ScreenName(room) + " now uses " + RoomsView.Summary(room));
                 changed = true;
             }
             if (changed) save();
+        }
+
+        /// <summary>"LG TV SSCR2", or the key for a screen without an EDID name.</summary>
+        internal static string ScreenName(KnownScreen screen)
+        {
+            if (screen == null) return "?";
+            return string.IsNullOrWhiteSpace(screen.DisplayName) ? screen.Key : screen.DisplayName;
         }
 
         public void Stop()
@@ -168,7 +185,7 @@ namespace Displicare.Rooms
                 audioWatcher.Dispose();
                 audioWatcher = null;
             }
-            pendingAudioRoom = null;
+            pendingAudioSetup = null;
             ApplyController();
             if (streamTimer != null) streamTimer.Stop();
             if (autoHideAfterStream)
@@ -209,12 +226,12 @@ namespace Displicare.Rooms
         void Discover()
         {
             lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
-            activeKey = FindActiveRoom();
             // 2.3.2 test builds took a streaming display (SudoVDA reports a connector like HDMI) for a screen of its own.
-            int stray = settings.Rooms.RemoveAll(r => DisplayConfigApi.IsVirtualAdapter(r.AdapterPath));
+            int stray = settings.KnownScreens.RemoveAll(sc => DisplayConfigApi.IsVirtualAdapter(sc.AdapterPath));
             if (stray > 0)
             {
-                RoomLog.Write("Removed " + stray + " room(s) for virtual displays.");
+                settings.SafeSetupId = SetupMigration.Sanitize(settings.KnownScreens, settings.Setups, settings.SafeSetupId);
+                RoomLog.Write("Removed " + stray + " screen(s) for virtual displays.");
                 save();
             }
             bool added = false;
@@ -223,41 +240,55 @@ namespace Displicare.Rooms
                 if (!t.Available || t.IsVirtual || t.Identity == null) continue;
                 string key = ModelKey(t.Identity.DevicePath);
                 if (key == null) continue;
-                var room = FindByKey(key);
-                if (room == null)
+                var screen = FindScreen(key);
+                if (screen == null)
                 {
-                    room = new Room();
-                    room.Key = key;
-                    room.Name = t.Identity.DisplayName;
-                    var taken = new List<string>();
-                    taken.Add(settings.RoomHomeHotkey);
-                    foreach (var r in settings.Rooms) taken.Add(r.Hotkey);
-                    room.Hotkey = Hotkey.NextFree(taken) ?? "";
-                    settings.Rooms.Add(room);
+                    // A screen seen for the first time also gets a setup of its own. Only now: a setup deleted later
+                    // stays deleted, because the screen is still known.
+                    screen = new KnownScreen();
+                    screen.Key = key;
+                    settings.KnownScreens.Add(screen);
+                    var setup = new Setup();
+                    setup.Id = SetupMigration.IdForRoom(key);
+                    if (FindSetupById(setup.Id) != null) setup.Id = SetupMigration.NewId();
+                    setup.Name = t.Identity.DisplayName;
+                    setup.Screens.Add(key);
+                    setup.Hotkey = NextFreeHotkey();
+                    settings.Setups.Add(setup);
                     added = true;
-                    RoomLog.Write("New room \"" + room.Name + "\" (" + key + ")");
+                    RoomLog.Write("New screen " + t.Identity.DisplayName + " (" + key + "), room \"" + setup.Name + "\"");
                 }
-                room.DisplayName = t.Identity.FriendlyName;
-                room.DevicePath = t.Identity.DevicePath;
-                room.AdapterPath = t.Identity.AdapterPath;
-                room.EdidManufacturer = t.Identity.EdidManufacturer;
-                room.EdidProduct = t.Identity.EdidProduct;
-                room.ConnectorInstance = (int)t.Identity.ConnectorInstance;
+                screen.DisplayName = t.Identity.FriendlyName;
+                screen.DevicePath = t.Identity.DevicePath;
+                screen.AdapterPath = t.Identity.AdapterPath;
+                screen.EdidManufacturer = t.Identity.EdidManufacturer;
+                screen.EdidProduct = t.Identity.EdidProduct;
+                screen.ConnectorInstance = (int)t.Identity.ConnectorInstance;
             }
+            activeId = FindActiveSetup();
             if (added)
             {
                 // The screen in use when rooms were first set up is the natural way home.
-                if (string.IsNullOrEmpty(settings.RoomHomeKey) || FindByKey(settings.RoomHomeKey) == null)
-                    settings.RoomHomeKey = activeKey ?? settings.Rooms[0].Key;
+                if (FindSetupById(settings.SafeSetupId) == null)
+                    settings.SafeSetupId = activeId ?? (settings.Setups.Count > 0 ? settings.Setups[0].Id : null);
                 save();
             }
-            if (AssignPadDirections(settings.Rooms, settings.RoomHomeKey))
+            if (AssignPadDirections(settings.Setups, settings.SafeSetupId))
             {
-                foreach (var r in settings.Rooms)
-                    if (!string.IsNullOrEmpty(r.PadDirection)) RoomLog.Write("\"" + r.Name + "\" is on " + PadLabel(r.PadDirection) + ".");
+                foreach (var s in settings.Setups)
+                    if (!string.IsNullOrEmpty(s.PadDirection)) RoomLog.Write("\"" + s.Name + "\" is on " + PadLabel(s.PadDirection) + ".");
                 save();
             }
             LogScreensComingAndGoing();
+        }
+
+        /// <summary>The first Ctrl+Alt+1..9 no setup and no home hotkey uses, or "".</summary>
+        string NextFreeHotkey()
+        {
+            var taken = new List<string>();
+            taken.Add(settings.RoomHomeHotkey);
+            foreach (var s in settings.Setups) taken.Add(s.Hotkey);
+            return Hotkey.NextFree(taken) ?? "";
         }
 
         /// <summary>
@@ -289,7 +320,7 @@ namespace Displicare.Rooms
             return parts.Length >= 2 && parts[1].Length > 0 ? parts[1].ToUpperInvariant() : null;
         }
 
-        /// <summary>Key of the room on screen: exactly one physical display active (virtual ones don't count).</summary>
+        /// <summary>Key of the one physical display that is on (virtual ones don't count), or null.</summary>
         internal static string ActiveKey(IList<TargetInfo> targets)
         {
             string key = null;
@@ -303,8 +334,8 @@ namespace Displicare.Rooms
             return physical == 1 ? key : null;
         }
 
-        /// <summary>The room on screen now, from <see cref="lastTargets"/> and which screen is the main one.</summary>
-        string FindActiveRoom()
+        /// <summary>The setup on screen now, from <see cref="lastTargets"/> and which screen is the main one.</summary>
+        string FindActiveSetup()
         {
             string primary = null;
             try
@@ -313,17 +344,15 @@ namespace Displicare.Rooms
                     if (d.Primary && !d.IsVirtual && d.Identity != null) primary = ModelKey(d.Identity.DevicePath);
             }
             catch (Exception) { }
-            return ActiveRoomKey(lastTargets, settings.Rooms, primary);
+            return ActiveSetupId(lastTargets, settings.Setups, primary);
         }
 
         /// <summary>
-        /// Key of the room on screen: the one physical display that is on, or a room whose screens (its own and
-        /// <see cref="Room.AlsoOn"/>) are exactly the ones on. Two rooms with the same screens: the one on the main screen.
+        /// Id of the setup on screen: one whose screens are exactly the physical ones on. Of several, the one with the main
+        /// screen as its own main one, then one that isn't hidden, then the first.
         /// </summary>
-        internal static string ActiveRoomKey(IList<TargetInfo> targets, IList<Room> rooms, string primaryKey)
+        internal static string ActiveSetupId(IList<TargetInfo> targets, IList<Setup> setups, string primaryKey)
         {
-            string single = ActiveKey(targets);
-            if (single != null) return single;
             var on = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var t in targets)
             {
@@ -332,60 +361,66 @@ namespace Displicare.Rooms
                 if (key == null) return null;
                 on.Add(key);
             }
-            if (on.Count < 2) return null;
-            string found = null;
-            foreach (var r in rooms)
+            if (on.Count == 0) return null;
+            Setup best = null;
+            int bestScore = -1;
+            foreach (var s in setups)
             {
-                if (r.AlsoOn == null || r.AlsoOn.Count == 0 || !RoomScreens(r).SetEquals(on)) continue;
-                if (string.Equals(r.Key, primaryKey, StringComparison.OrdinalIgnoreCase)) return r.Key;
-                if (found == null) found = r.Key;
+                if (s == null || s.Screens.Count != on.Count || !new HashSet<string>(s.Screens, StringComparer.OrdinalIgnoreCase).SetEquals(on)) continue;
+                int score = (string.Equals(s.MainScreen, primaryKey, StringComparison.OrdinalIgnoreCase) ? 2 : 0) + (s.Hidden ? 0 : 1);
+                if (score > bestScore) { best = s; bestScore = score; }
             }
-            return found;
+            return best != null ? best.Id : null;
         }
 
-        /// <summary>The room's own screen and the ones it turns on with it, by key.</summary>
-        internal static HashSet<string> RoomScreens(Room room)
-        {
-            var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            keys.Add(room.Key ?? "");
-            if (room.AlsoOn != null) foreach (var k in room.AlsoOn) if (!string.IsNullOrEmpty(k)) keys.Add(k);
-            return keys;
-        }
-
-        public Room FindByKey(string key)
+        public KnownScreen FindScreen(string key)
         {
             if (string.IsNullOrEmpty(key)) return null;
-            foreach (var r in settings.Rooms) if (string.Equals(r.Key, key, StringComparison.OrdinalIgnoreCase)) return r;
+            foreach (var s in settings.KnownScreens) if (string.Equals(s.Key, key, StringComparison.OrdinalIgnoreCase)) return s;
             return null;
         }
 
-        /// <summary>A room by name ("Living room"), model key or a unique part of its name ("living", "lg").</summary>
-        public Room FindRoom(string text)
+        public Setup FindSetupById(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return null;
+            foreach (var s in settings.Setups) if (s.Id == id) return s;
+            return null;
+        }
+
+        /// <summary>
+        /// A setup by name ("Living room"), its screen's model key, or a unique part of its name or its main screen's
+        /// ("living", "lg"): for --room and the pipe.
+        /// </summary>
+        public Setup FindSetup(string text)
         {
             text = (text ?? "").Trim();
             if (text.Length == 0) return null;
-            foreach (var r in settings.Rooms) if (string.Equals(r.Name, text, StringComparison.OrdinalIgnoreCase)) return r;
-            var byKey = FindByKey(text);
+            foreach (var s in settings.Setups) if (string.Equals(s.Name, text, StringComparison.OrdinalIgnoreCase)) return s;
+            var byId = FindSetupById(text);
+            if (byId != null) return byId;
+            var byKey = SetupMigration.SetupFor(settings.Setups, text);
             if (byKey != null) return byKey;
-            Room hit = null;
-            foreach (var r in settings.Rooms)
+            Setup hit = null;
+            foreach (var s in settings.Setups)
             {
-                bool match = (r.Name ?? "").IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0
-                    || (r.DisplayName ?? "").IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0;
+                var main = FindScreen(s.MainScreen);
+                bool match = (s.Name ?? "").IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0
+                    || (main != null && (main.DisplayName ?? "").IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0);
                 if (!match) continue;
                 if (hit != null) return null;
-                hit = r;
+                hit = s;
             }
             return hit;
         }
 
-        public Room HomeRoom
+        /// <summary>Where the home hotkey goes: the safe setup, else the first one that isn't hidden.</summary>
+        public Setup SafeSetup
         {
             get
             {
-                var home = FindByKey(settings.RoomHomeKey);
-                if (home != null) return home;
-                foreach (var r in settings.Rooms) if (!r.Hidden) return r;
+                var safe = FindSetupById(settings.SafeSetupId);
+                if (safe != null) return safe;
+                foreach (var s in settings.Setups) if (!s.Hidden) return s;
                 return null;
             }
         }
@@ -393,46 +428,50 @@ namespace Displicare.Rooms
         public List<RoomStatus> Statuses()
         {
             var list = new List<RoomStatus>();
-            foreach (var room in settings.Rooms)
+            foreach (var setup in settings.Setups)
             {
                 var s = new RoomStatus();
-                s.Room = room;
-                s.Active = string.Equals(room.Key, activeKey, StringComparison.OrdinalIgnoreCase);
+                s.Setup = setup;
+                s.Screen = FindScreen(setup.MainScreen);
+                s.Active = setup.Id == activeId;
                 foreach (var t in lastTargets)
                 {
-                    if (!t.Available || t.Identity == null || !string.Equals(ModelKey(t.Identity.DevicePath), room.Key, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!t.Available || t.Identity == null || !string.Equals(ModelKey(t.Identity.DevicePath), setup.MainScreen, StringComparison.OrdinalIgnoreCase)) continue;
                     s.Connected = true;
                     s.Connection = DisplayConfigApi.OutputName(t.OutputTechnology) + " · " + GpuName(t.Identity.AdapterPath);
                 }
-                byte[] edid = EdidFor(room);
+                byte[] edid = EdidFor(s.Screen);
                 s.Native = Edid.Preferred(edid);
                 s.HdrCapable = Edid.SupportsHdr(edid);
-                // Once the room has been on screen, only offer what Windows actually allowed on this connection.
-                s.ModesFromEdid = room.KnownModes.Count == 0;
-                s.Modes = MergeModes(room.KnownModes, s.ModesFromEdid ? Edid.Modes(edid) : null);
-                if (room.AlsoOn != null && room.AlsoOn.Count > 0)
+                // Once the screen has been on, only offer what Windows actually allowed on this connection.
+                s.ModesFromEdid = s.Screen == null || s.Screen.KnownModes.Count == 0;
+                s.Modes = MergeModes(s.Screen != null ? s.Screen.KnownModes : null, s.ModesFromEdid ? Edid.Modes(edid) : null);
+                if (setup.Screens.Count > 1)
                 {
                     var names = new List<string>();
-                    foreach (var key in room.AlsoOn)
+                    var missing = new List<string>();
+                    for (int i = 1; i < setup.Screens.Count; i++)
                     {
-                        var other = FindByKey(key);
-                        names.Add(other != null ? other.Name : key);
+                        string name = ScreenName(FindScreen(setup.Screens[i]));
+                        names.Add(name);
+                        if (!IsConnected(setup.Screens[i])) missing.Add(name);
                     }
                     s.AlsoOnNames = string.Join(", ", names.ToArray());
+                    if (missing.Count > 0) s.MissingNames = string.Join(", ", missing.ToArray());
                 }
                 list.Add(s);
             }
             return list;
         }
 
-        byte[] EdidFor(Room room)
+        byte[] EdidFor(KnownScreen screen)
         {
-            if (string.IsNullOrEmpty(room.DevicePath)) return null;
+            if (screen == null || string.IsNullOrEmpty(screen.DevicePath)) return null;
             byte[] edid;
-            if (!edidCache.TryGetValue(room.DevicePath, out edid))
+            if (!edidCache.TryGetValue(screen.DevicePath, out edid))
             {
-                edid = Edid.Read(room.DevicePath);
-                edidCache[room.DevicePath] = edid;
+                edid = Edid.Read(screen.DevicePath);
+                edidCache[screen.DevicePath] = edid;
             }
             return edid;
         }
@@ -512,75 +551,57 @@ namespace Displicare.Rooms
         // ---------------------------------------------------------------- learning
 
         /// <summary>
-        /// Remembers the mode and HDR in use in the room on screen, and which modes it offers. Runs after display changes
-        /// and right before switching away, so a setting changed in Windows is kept for next time. Sound is learned from
-        /// the user's own default-output changes instead (<see cref="OnDefaultAudioChanged"/>).
+        /// Remembers which modes each screen on offers, and the mode and HDR of a screen on by itself in its own setup. Runs
+        /// after display changes and right before switching away, so a setting changed in Windows is kept for next time.
+        /// A setup's screens and arrangement never change on their own (<see cref="UseCurrentArrangement"/>). Sound is
+        /// learned from the user's own default-output changes instead (<see cref="OnDefaultAudioChanged"/>).
         /// </summary>
         void Learn()
         {
-            var room = FindByKey(activeKey);
-            if (room == null) return;
-            // With several screens on, learn from this room's own one.
-            ActiveDisplay display = null;
-            foreach (var d in DisplayTopology.GetActiveDisplays())
-                if (!d.IsVirtual && d.Identity != null && string.Equals(ModelKey(d.Identity.DevicePath), room.Key, StringComparison.OrdinalIgnoreCase))
-                    display = d;
-            if (display == null) return;
-
-            bool changed = LearnLayout(room);
-            int width = display.Width, height = display.Height, hz = (int)Math.Round(display.RefreshHz);
-            var offered = display.GdiName != null ? LayoutEngine.ListModes(display.GdiName) : null;
-            if (offered != null) AsDefaults(offered, Edid.Preferred(EdidFor(room)), ref width, ref height, ref hz);
-            if (room.Width != width || room.Height != height || room.RefreshHz != hz)
+            var active = FindSetupById(activeId);
+            bool alone = active != null && active.Screens.Count == 1;
+            bool changed = false;
+            foreach (var display in DisplayTopology.GetActiveDisplays())
             {
-                room.Width = width;
-                room.Height = height;
-                room.RefreshHz = hz;
-                changed = true;
-            }
-            if (display.Hdr >= 0)
-            {
-                // HDR on keeps "auto"; turning it off in Windows is remembered as off.
-                string hdr = display.Hdr == 1 ? (room.Hdr == Room.HdrOff ? Room.HdrOn : room.Hdr) : Room.HdrOff;
-                if (room.Hdr != hdr) { room.Hdr = hdr; changed = true; }
-            }
-            if (offered != null)
-            {
-                var known = ModesToRemember(offered);
-                if (known.Count > 0 && string.Join(",", known.ToArray()) != string.Join(",", room.KnownModes.ToArray()))
+                if (display.IsVirtual || display.Identity == null) continue;
+                var screen = FindScreen(ModelKey(display.Identity.DevicePath));
+                if (screen == null) continue;
+                var offered = display.GdiName != null ? LayoutEngine.ListModes(display.GdiName) : null;
+                if (offered != null)
                 {
-                    room.KnownModes = known;
+                    var known = ModesToRemember(offered);
+                    if (known.Count > 0 && string.Join(",", known.ToArray()) != string.Join(",", screen.KnownModes.ToArray()))
+                    {
+                        screen.KnownModes = known;
+                        changed = true;
+                    }
+                }
+                // Mode and HDR only from a screen on by itself: next to others it may run as the setup arranged it.
+                if (!alone || !string.Equals(screen.Key, active.MainScreen, StringComparison.OrdinalIgnoreCase)) continue;
+
+                bool modeChanged = false;
+                int width = display.Width, height = display.Height, hz = (int)Math.Round(display.RefreshHz);
+                if (offered != null) AsDefaults(offered, Edid.Preferred(EdidFor(screen)), ref width, ref height, ref hz);
+                if (screen.Width != width || screen.Height != height || screen.RefreshHz != hz)
+                {
+                    screen.Width = width;
+                    screen.Height = height;
+                    screen.RefreshHz = hz;
+                    modeChanged = true;
+                }
+                if (display.Hdr >= 0)
+                {
+                    // HDR on keeps "auto"; turning it off in Windows is remembered as off.
+                    string hdr = display.Hdr == 1 ? (screen.Hdr == Room.HdrOff ? Room.HdrOn : screen.Hdr) : Room.HdrOff;
+                    if (screen.Hdr != hdr) { screen.Hdr = hdr; modeChanged = true; }
+                }
+                if (modeChanged)
+                {
                     changed = true;
+                    RoomLog.Write("Learned " + ScreenName(screen) + ": " + RoomsView.Summary(screen));
                 }
             }
-            if (changed)
-            {
-                RoomLog.Write("Learned \"" + room.Name + "\": " + RoomsView.Summary(room));
-                save();
-            }
-        }
-
-        /// <summary>
-        /// A room with other screens keeps how they are arranged in Windows (positions, exact modes, HDR) while all of them
-        /// are on, so switching here puts them back just so. Sound stays the room's own setting.
-        /// </summary>
-        bool LearnLayout(Room room)
-        {
-            if (room.AlsoOn == null || room.AlsoOn.Count == 0) return false;
-            Profile now;
-            try { now = LayoutEngine.Capture(room.Name, false); }
-            catch (Exception ex)
-            {
-                RoomLog.Write("Couldn't record the layout of \"" + room.Name + "\": " + ex.Message);
-                return false;
-            }
-            if (!RoomScreens(room).SetEquals(ScreenKeys(now))) return false;
-            now.AudioId = null;
-            now.AudioName = null;
-            if (room.Layout != null && LayoutSignature(room.Layout) == LayoutSignature(now)) return false;
-            room.Layout = now;
-            RoomLog.Write("Learned the layout of \"" + room.Name + "\": " + now.Summary);
-            return true;
+            if (changed) save();
         }
 
         /// <summary>Which screens, where, in which mode: two layouts with the same signature look the same.</summary>
@@ -637,25 +658,27 @@ namespace Displicare.Rooms
 
         // ---------------------------------------------------------------- sound
 
-        /// <summary>Sets the room's sound now if its output is there, else as soon as it appears (up to a minute).</summary>
-        void BeginRoomAudio(Room room)
+        /// <summary>Sets the setup's sound now if its output is there, else as soon as it appears (up to a minute).</summary>
+        void BeginSetupAudio(Setup setup)
         {
-            pendingAudioRoom = null;
-            if (room.Audio == Room.AudioKeep) return;
-            if (TrySetRoomAudio(room)) return;
-            pendingAudioRoom = room;
+            pendingAudioSetup = null;
+            if (setup.Audio == Room.AudioKeep) return;
+            if (TrySetSetupAudio(setup)) return;
+            pendingAudioSetup = setup;
             pendingAudioUntil = DateTime.UtcNow + AudioWaitTime;
-            RoomLog.Write("Waiting for the sound output of \"" + room.Name + "\"");
+            RoomLog.Write("Waiting for the sound output of \"" + setup.Name + "\"");
         }
 
-        bool TrySetRoomAudio(Room room)
+        /// <summary>"Auto" is the main screen's own sound output (a TV's HDMI audio).</summary>
+        bool TrySetSetupAudio(Setup setup)
         {
             List<AudioOutput> outputs;
             try { outputs = AudioOutputs.List(); }
             catch (Exception ex) { RoomLog.Write("Couldn't list sound outputs: " + ex.Message); return false; }
-            int index = room.Audio == Room.AudioAuto
-                ? AudioOutputs.ForDisplay(room.DisplayName, outputs)
-                : AudioOutputs.Match(room.AudioId, room.AudioName, outputs);
+            var main = FindScreen(setup.MainScreen);
+            int index = setup.Audio == Room.AudioAuto
+                ? AudioOutputs.ForDisplay(main != null ? main.DisplayName : null, outputs)
+                : AudioOutputs.Match(setup.AudioId, setup.AudioName, outputs);
             if (index < 0) return false;
             if (outputs[index].IsDefault) return true;
             ignoreAudioChangesUntil = DateTime.UtcNow.AddSeconds(5);
@@ -666,22 +689,22 @@ namespace Displicare.Rooms
 
         void OnAudioOutputsChanged()
         {
-            if (pendingAudioRoom == null) return;
+            if (pendingAudioSetup == null) return;
             if (DateTime.UtcNow > pendingAudioUntil)
             {
-                RoomLog.Write("The sound output of \"" + pendingAudioRoom.Name + "\" never appeared; sound stays where it was.");
-                pendingAudioRoom = null;
+                RoomLog.Write("The sound output of \"" + pendingAudioSetup.Name + "\" never appeared; sound stays where it was.");
+                pendingAudioSetup = null;
                 return;
             }
-            if (TrySetRoomAudio(pendingAudioRoom)) pendingAudioRoom = null;
+            if (TrySetSetupAudio(pendingAudioSetup)) pendingAudioSetup = null;
         }
 
-        /// <summary>The user picked another output while a room is on screen: that room uses it from now on.</summary>
+        /// <summary>The user picked another output while a setup is on screen: that setup uses it from now on.</summary>
         void OnDefaultAudioChanged(string id)
         {
             if (busy || DateTime.UtcNow < ignoreAudioChangesUntil || hotkeys == null) return;
-            var room = FindByKey(activeKey);
-            if (room == null || room.Audio == Room.AudioKeep) return;
+            var setup = FindSetupById(activeId);
+            if (setup == null || setup.Audio == Room.AudioKeep) return;
             List<AudioOutput> outputs;
             try { outputs = AudioOutputs.List(); }
             catch (Exception) { return; }
@@ -689,23 +712,24 @@ namespace Displicare.Rooms
             foreach (var o in outputs) if (o.Id == id) chosen = o;
             if (chosen == null) return;
 
-            int own = AudioOutputs.ForDisplay(room.DisplayName, outputs);
+            var main = FindScreen(setup.MainScreen);
+            int own = AudioOutputs.ForDisplay(main != null ? main.DisplayName : null, outputs);
             bool changed;
             if (own >= 0 && outputs[own].Id == id)
             {
-                changed = room.Audio != Room.AudioAuto;
-                room.Audio = Room.AudioAuto;
+                changed = setup.Audio != Room.AudioAuto;
+                setup.Audio = Room.AudioAuto;
             }
             else
             {
-                changed = room.Audio != Room.AudioDevice || room.AudioId != id;
-                room.Audio = Room.AudioDevice;
-                room.AudioId = id;
-                room.AudioName = chosen.Name;
+                changed = setup.Audio != Room.AudioDevice || setup.AudioId != id;
+                setup.Audio = Room.AudioDevice;
+                setup.AudioId = id;
+                setup.AudioName = chosen.Name;
             }
-            if (pendingAudioRoom == room) pendingAudioRoom = null; // the user chose; stop waiting
+            if (pendingAudioSetup == setup) pendingAudioSetup = null; // the user chose; stop waiting
             if (!changed) return;
-            RoomLog.Write("Learned \"" + room.Name + "\" sound: " + (room.Audio == Room.AudioAuto ? "its own (" + chosen.Name + ")" : chosen.Name));
+            RoomLog.Write("Learned \"" + setup.Name + "\" sound: " + (setup.Audio == Room.AudioAuto ? "its own (" + chosen.Name + ")" : chosen.Name));
             save();
             RaiseChanged();
         }
@@ -713,12 +737,13 @@ namespace Displicare.Rooms
         // ---------------------------------------------------------------- switching
 
         /// <summary>
-        /// Makes the room's display the only one. Asks to keep it unless it's the home hotkey or this room was kept
-        /// before (per the "ask" setting), and switches back when nobody answers.
+        /// Turns the setup's screens on (the first as the main one) and the others off. Asks to keep it unless it's the
+        /// home hotkey (<paramref name="safe"/>) or the setup was kept before (per the "ask" setting), and switches back
+        /// when nobody answers.
         /// </summary>
-        public void SwitchTo(Room room, bool home)
+        public void SwitchTo(Setup setup, bool safe)
         {
-            if (room == null || busy) return;
+            if (setup == null || busy) return;
             if (CanSwitch != null && !CanSwitch())
             {
                 RaiseNotify("Can't switch rooms right now", "Finish the hardware test first.", true);
@@ -727,20 +752,24 @@ namespace Displicare.Rooms
             try
             {
                 lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
-                if (PickUpDesk(HomeRoom, room, lastTargets)) save();
-                activeKey = FindActiveRoom();
-                Learn(); // keep what was used in the room we're leaving
+                activeId = FindActiveSetup();
+                Learn(); // keep what was used on the screens we're leaving
             }
             catch (Exception ex) { RoomLog.Write("Couldn't read the current room: " + ex.Message); }
 
-            var leaving = FindByKey(activeKey);
-            var profile = RoomProfile(room);
-            bool ask = !home && (settings.RoomAskToKeep == AppSettings.RoomAskAlways
-                || (settings.RoomAskToKeep == AppSettings.RoomAskNew && !room.Confirmed));
+            var leaving = FindSetupById(activeId);
+            var profile = SetupProfile(setup);
+            if (profile == null)
+            {
+                RaiseNotify("Couldn't switch to " + setup.Name, "Its main screen isn't known any more.", true);
+                return;
+            }
+            bool ask = !safe && (settings.RoomAskToKeep == AppSettings.RoomAskAlways
+                || (settings.RoomAskToKeep == AppSettings.RoomAskNew && !setup.Confirmed));
             bool pad = gamepad != null && gamepad.Connected;
             if (pad && ask) gamepad.Navigating = true; // A and B answer the prompt
             busy = true;
-            pendingAudioRoom = null;
+            pendingAudioSetup = null;
             RoomOverlay.CloseAll();
             RaiseChanged();
 
@@ -759,15 +788,15 @@ namespace Displicare.Rooms
                 {
                     result = LayoutEngine.Apply(profile, 10);
                     // Sound starts while the prompt is up, so you hear the TV before deciding.
-                    if (result.Success) dispatcher.Invoke((Action)delegate { BeginRoomAudio(room); });
+                    if (result.Success) dispatcher.Invoke((Action)delegate { BeginSetupAudio(setup); });
                     if (result.Success && ask)
                     {
                         asked = true;
-                        bool kept = ConfirmForm.Ask(room.Name, ConfirmSeconds, pad);
-                        RoomLog.Write(kept ? "Kept \"" + room.Name + "\"." : "\"" + room.Name + "\" not kept; switching back.");
+                        bool kept = ConfirmForm.Ask(setup.Name, ConfirmSeconds, pad);
+                        RoomLog.Write(kept ? "Kept \"" + setup.Name + "\"." : "\"" + setup.Name + "\" not kept; switching back.");
                         if (!kept)
                         {
-                            dispatcher.Invoke((Action)delegate { pendingAudioRoom = null; });
+                            dispatcher.Invoke((Action)delegate { pendingAudioSetup = null; });
                             var back = result.Previous != null ? LayoutEngine.Apply(result.Previous, 0) : null;
                             result.Reverted = true;
                             result.Message = back != null && back.Success
@@ -784,7 +813,7 @@ namespace Displicare.Rooms
                 }
                 dispatcher.BeginInvoke((Action)delegate
                 {
-                    Finish(room, leaving, result, asked);
+                    Finish(setup, leaving, result, asked);
                     if (autoHide) AutoHideLater();
                 });
             });
@@ -794,7 +823,7 @@ namespace Displicare.Rooms
             thread.Start();
         }
 
-        void Finish(Room room, Room leaving, ApplyResult result, bool asked)
+        void Finish(Setup setup, Setup leaving, ApplyResult result, bool asked)
         {
             busy = false;
             if (gamepad != null) gamepad.Navigating = false;
@@ -803,22 +832,22 @@ namespace Displicare.Rooms
             ignoreAudioChangesUntil = DateTime.UtcNow.AddSeconds(5);
             if (result.Success && !result.Reverted)
             {
-                if (asked && !room.Confirmed)
+                if (asked && !setup.Confirmed)
                 {
-                    room.Confirmed = true;
+                    setup.Confirmed = true;
                     save();
                 }
-                StartLauncher(room, leaving);
-                if (result.Warnings.Count > 0) RaiseNotify("Switched to " + room.Name, string.Join("\n", result.Warnings.ToArray()), true);
-                if (settings.RoomShowOverlay) RoomOverlay.ShowNote(room.Name, SwitchNote(room), NoteMs);
+                StartLauncher(setup, leaving);
+                if (result.Warnings.Count > 0) RaiseNotify("Switched to " + setup.Name, string.Join("\n", result.Warnings.ToArray()), true);
+                if (settings.RoomShowOverlay) RoomOverlay.ShowNote(setup.Name, SwitchNote(setup), NoteMs);
             }
-            else if (result.Reverted) RaiseNotify(room.Name + " wasn't kept", result.Message, false);
-            else RaiseNotify("Couldn't switch to " + room.Name, result.Message, true);
+            else if (result.Reverted) RaiseNotify(setup.Name + " wasn't kept", result.Message, false);
+            else RaiseNotify("Couldn't switch to " + setup.Name, result.Message, true);
 
             try
             {
                 lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
-                activeKey = FindActiveRoom();
+                activeId = FindActiveSetup();
                 CheckStream(); // a stream that started during the switch
                 if (!StreamOn()) RememberLayout();
             }
@@ -826,21 +855,36 @@ namespace Displicare.Rooms
             RaiseChanged();
         }
 
-        /// <summary>"3840 × 2160 · 120 Hz · HDR · LG TV SSCR2": what the room's screen and sound are now.</summary>
-        string SwitchNote(Room room)
+        /// <summary>
+        /// "3840 × 2160 · 120 Hz · HDR · LG TV SSCR2", or with several screens "AORUS FO32U2 + Dell · 2560 × 1440 · …":
+        /// what the setup's main screen and sound are now, and any of its screens that weren't connected.
+        /// </summary>
+        string SwitchNote(Setup setup)
         {
             var parts = new List<string>();
             try
             {
+                if (setup.Screens.Count > 1)
+                {
+                    var on = new List<string>();
+                    var missing = new List<string>();
+                    foreach (var key in setup.Screens)
+                    {
+                        if (IsActive(key)) on.Add(ScreenName(FindScreen(key)));
+                        else missing.Add(ScreenName(FindScreen(key)));
+                    }
+                    parts.Add(string.Join(" + ", on.ToArray()));
+                    foreach (var m in missing) parts.Add(m + " not connected");
+                }
                 foreach (var d in DisplayTopology.GetActiveDisplays())
                 {
-                    if (d.IsVirtual) continue;
+                    if (d.IsVirtual || !d.Primary) continue;
                     parts.Add(d.Width + " × " + d.Height);
                     parts.Add(Math.Round(d.RefreshHz) + " Hz");
                     if (d.Hdr == 1) parts.Add("HDR");
                     break;
                 }
-                if (pendingAudioRoom == room) parts.Add("sound when the TV is ready");
+                if (pendingAudioSetup == setup) parts.Add("sound when the TV is ready");
                 else
                 {
                     var audio = AudioOutputs.Default();
@@ -867,64 +911,39 @@ namespace Displicare.Rooms
         }
 
         /// <summary>
-        /// The first time you leave the desk (the home screen on with others next to it) for a room that isn't one of them,
-        /// those other screens become the home room's <see cref="Room.AlsoOn"/>, so going home turns them back on. Only
-        /// while the home room hasn't been given screens yet: after that, Room settings decide.
+        /// The layout for switching to a setup: its saved arrangement when every one of its screens is connected, else
+        /// its main screen with the connected others side by side to its right, each in its own mode. Null when the main
+        /// screen isn't known.
         /// </summary>
-        internal static bool PickUpDesk(Room home, Room target, IList<TargetInfo> targets)
+        Profile SetupProfile(Setup setup)
         {
-            if (home == null || target == null || home == target || home.AlsoOn != null) return false;
-            var on = new List<string>();
-            bool homeOn = false;
-            foreach (var t in targets)
-            {
-                if (!t.Active || t.IsVirtual || t.Identity == null) continue;
-                string key = ModelKey(t.Identity.DevicePath);
-                if (key == null) continue;
-                if (string.Equals(key, target.Key, StringComparison.OrdinalIgnoreCase)) return false; // one desk screen on its own
-                if (string.Equals(key, home.Key, StringComparison.OrdinalIgnoreCase)) homeOn = true;
-                else if (!on.Contains(key)) on.Add(key);
-            }
-            if (!homeOn || on.Count == 0) return false;
-            home.AlsoOn = on;
-            RoomLog.Write("\"" + home.Name + "\" now also turns on " + string.Join(", ", on.ToArray()) + ".");
-            return true;
-        }
-
-        /// <summary>
-        /// The layout for switching to a room: its learned arrangement when every one of its screens is connected and it
-        /// still has the same screens, else its own screen with the connected <see cref="Room.AlsoOn"/> screens to its right.
-        /// </summary>
-        Profile RoomProfile(Room room)
-        {
-            var native = Edid.Preferred(EdidFor(room));
-            var others = new List<Room>();
+            var main = FindScreen(setup.MainScreen);
+            if (main == null) return null;
+            var native = Edid.Preferred(EdidFor(main));
+            var others = new List<KnownScreen>();
             var natives = new List<DisplayMode?>();
-            if (room.AlsoOn != null)
-                foreach (var key in room.AlsoOn)
+            for (int i = 1; i < setup.Screens.Count; i++)
+            {
+                var other = FindScreen(setup.Screens[i]);
+                if (other == null) continue;
+                if (!IsConnected(other.Key))
                 {
-                    var other = FindByKey(key);
-                    if (other == null || other == room) continue;
-                    if (!IsConnected(other.Key))
-                    {
-                        RoomLog.Write("\"" + other.Name + "\" isn't connected, so \"" + room.Name + "\" goes without it.");
-                        continue;
-                    }
-                    others.Add(other);
-                    natives.Add(Edid.Preferred(EdidFor(other)));
+                    RoomLog.Write(ScreenName(other) + " isn't connected, so \"" + setup.Name + "\" goes without it.");
+                    continue;
                 }
-            if (others.Count == 0) return BuildProfile(room, native);
+                others.Add(other);
+                natives.Add(Edid.Preferred(EdidFor(other)));
+            }
+            if (others.Count == 0) return BuildProfile(main, native, setup.Name);
 
-            var want = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            want.Add(room.Key);
-            foreach (var o in others) want.Add(o.Key);
-            if (UsableLayout(room.Layout) && ScreenKeys(room.Layout).SetEquals(want))
+            if (others.Count == setup.Screens.Count - 1 && UsableLayout(setup.Layout)
+                && ScreenKeys(setup.Layout).SetEquals(setup.Screens))
             {
                 bool all = true;
-                foreach (var d in room.Layout.Displays) if (LayoutEngine.MatchTarget(d.Identity, lastTargets) < 0) all = false;
-                if (all) return room.Layout;
+                foreach (var d in setup.Layout.Displays) if (LayoutEngine.MatchTarget(d.Identity, lastTargets) < 0) all = false;
+                if (all) return setup.Layout;
             }
-            return BuildCombo(room, native, others, natives);
+            return BuildCombo(setup.Name, main, native, others, natives);
         }
 
         bool IsConnected(string key)
@@ -935,17 +954,25 @@ namespace Displicare.Rooms
             return false;
         }
 
-        /// <summary>
-        /// A room's screen (main, at 0,0) with other screens side by side to its right, each with its own room's mode and
-        /// HDR. Used until Windows has shown them together once and the real arrangement is learned.
-        /// </summary>
-        internal static Profile BuildCombo(Room main, DisplayMode? native, IList<Room> others, IList<DisplayMode?> otherNatives)
+        bool IsActive(string key)
         {
-            var profile = BuildProfile(main, native);
+            foreach (var t in lastTargets)
+                if (t.Active && !t.IsVirtual && t.Identity != null && string.Equals(ModelKey(t.Identity.DevicePath), key, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+
+        /// <summary>
+        /// The main screen (at 0,0) with other screens side by side to its right, each in its own mode and HDR. Used until
+        /// the setup has a saved arrangement.
+        /// </summary>
+        internal static Profile BuildCombo(string name, KnownScreen main, DisplayMode? native, IList<KnownScreen> others, IList<DisplayMode?> otherNatives)
+        {
+            var profile = BuildProfile(main, native, name);
             int x = Wide(profile.Displays[0]);
             for (int i = 0; i < others.Count; i++)
             {
-                var d = BuildProfile(others[i], i < otherNatives.Count ? otherNatives[i] : null).Displays[0];
+                var d = BuildProfile(others[i], i < otherNatives.Count ? otherNatives[i] : null, name).Displays[0];
                 d.Primary = false;
                 d.X = x;
                 d.Y = 0;
@@ -961,24 +988,24 @@ namespace Displicare.Rooms
             return d.Width > 0 ? d.Width : d.NativeWidth > 0 ? d.NativeWidth : 1920;
         }
 
-        /// <summary>The one-display layout for a room. Sound is handled separately (<see cref="BeginRoomAudio"/>).</summary>
-        internal static Profile BuildProfile(Room room, DisplayMode? native)
+        /// <summary>One screen on by itself, as the main one. Sound is handled separately (<see cref="BeginSetupAudio"/>).</summary>
+        internal static Profile BuildProfile(KnownScreen screen, DisplayMode? native, string name)
         {
             var id = new DisplayIdentity();
-            id.DevicePath = room.DevicePath;
-            id.FriendlyName = room.DisplayName;
-            id.EdidManufacturer = (ushort)room.EdidManufacturer;
-            id.EdidProduct = (ushort)room.EdidProduct;
-            id.ConnectorInstance = (uint)room.ConnectorInstance;
-            id.AdapterPath = room.AdapterPath;
+            id.DevicePath = screen.DevicePath;
+            id.FriendlyName = screen.DisplayName;
+            id.EdidManufacturer = (ushort)screen.EdidManufacturer;
+            id.EdidProduct = (ushort)screen.EdidProduct;
+            id.ConnectorInstance = (uint)screen.ConnectorInstance;
+            id.AdapterPath = screen.AdapterPath;
 
             var display = new ProfileDisplay();
             display.Identity = id;
             display.Primary = true;
-            display.Width = room.Width;
-            display.Height = room.Height;
-            display.RefreshHz = room.RefreshHz;
-            display.Hdr = room.Hdr == Room.HdrOn ? 1 : room.Hdr == Room.HdrOff ? 0 : 2;
+            display.Width = screen.Width;
+            display.Height = screen.Height;
+            display.RefreshHz = screen.RefreshHz;
+            display.Hdr = screen.Hdr == Room.HdrOn ? 1 : screen.Hdr == Room.HdrOff ? 0 : 2;
             if (native != null)
             {
                 display.NativeWidth = native.Value.Width;
@@ -986,19 +1013,19 @@ namespace Displicare.Rooms
             }
 
             var profile = new Profile();
-            profile.Name = room.Name;
+            profile.Name = name;
             profile.Displays.Add(display);
             return profile;
         }
 
         /// <summary>
-        /// Opens the room's launcher (Steam Big Picture or Xbox mode) and closes the one the room left behind used, unless
-        /// both rooms use the same. Xbox mode waits for Windows to confirm the change, so it runs off the UI thread.
+        /// Opens the setup's launcher (Steam Big Picture or Xbox mode) and closes the one the setup left behind used,
+        /// unless both use the same. Xbox mode waits for Windows to confirm the change, so it runs off the UI thread.
         /// </summary>
-        void StartLauncher(Room room, Room leaving)
+        void StartLauncher(Setup setup, Setup leaving)
         {
-            string open = room.Launcher ?? Room.LaunchNone;
-            string close = leaving != null && leaving != room ? leaving.Launcher ?? Room.LaunchNone : Room.LaunchNone;
+            string open = setup.Launcher ?? Room.LaunchNone;
+            string close = leaving != null && leaving != setup ? leaving.Launcher ?? Room.LaunchNone : Room.LaunchNone;
             if (close == open) close = Room.LaunchNone;
 
             if (close == Room.LaunchBigPicture) OpenUrl("steam://close/bigpicture");
@@ -1008,7 +1035,7 @@ namespace Displicare.Rooms
             if (open == Room.LaunchXbox || close == Room.LaunchXbox)
             {
                 bool on = open == Room.LaunchXbox;
-                string name = room.Name;
+                string name = setup.Name;
                 ThreadPool.QueueUserWorkItem(delegate
                 {
                     if (XboxMode.Set(on) || !on) return;
@@ -1031,18 +1058,155 @@ namespace Displicare.Rooms
             catch (Exception ex) { RoomLog.Write("Couldn't open " + url + ": " + ex.Message); }
         }
 
+        // ---------------------------------------------------------------- editing setups
+
         /// <summary>
-        /// Settings changed in the tab or window. Only a new resolution or refresh rate can leave a screen black, so only
-        /// that makes the next switch ask again; names, sound, HDR and hotkeys don't.
+        /// Settings changed in the tab or window. Only new screens or a new resolution or refresh rate can leave a screen
+        /// black, so only that makes the next switch ask again; names, sound, HDR and hotkeys don't.
         /// </summary>
-        public void RoomEdited(Room room, bool modeChanged)
+        public void SetupEdited(Setup setup, bool screensChanged)
         {
-            if (room != null && modeChanged) room.Confirmed = false;
+            if (setup != null && screensChanged)
+            {
+                setup.Confirmed = false;
+                // Saved for other screens: no longer fits.
+                if (setup.Layout != null && !ScreenKeys(setup.Layout).SetEquals(setup.Screens)) setup.Layout = null;
+            }
+            OptionsEdited();
+        }
+
+        /// <summary>A screen's own resolution or refresh rate changed: every setup with it asks again.</summary>
+        public void ScreenEdited(KnownScreen screen, bool modeChanged)
+        {
+            if (screen != null && modeChanged)
+                foreach (var s in settings.Setups)
+                    if (s.Screens.Exists(k => string.Equals(k, screen.Key, StringComparison.OrdinalIgnoreCase))) s.Confirmed = false;
+            OptionsEdited();
+        }
+
+        /// <summary>Options for all setups changed (or a setup did): save and apply.</summary>
+        public void OptionsEdited()
+        {
             save();
             RegisterHotkeys();
             ApplyController();
             if (!settings.RoomStreamScreensOff && streamTimer != null) streamTimer.Stop();
             RaiseChanged();
+        }
+
+        /// <summary>Whether exactly this setup's screens are on now, so its arrangement can be taken from Windows.</summary>
+        public bool ScreensAreOn(Setup setup)
+        {
+            if (setup == null) return false;
+            var on = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in lastTargets)
+                if (t.Active && !t.IsVirtual && t.Identity != null) on.Add(ModelKey(t.Identity.DevicePath) ?? "");
+            return on.Count > 0 && on.SetEquals(setup.Screens);
+        }
+
+        /// <summary>
+        /// Takes the arrangement of the screens on now (positions, exact modes, HDR) for the setup, whose screens they
+        /// must be. Keeping it is the user's choice, so it counts as kept and doesn't ask on the next switch.
+        /// </summary>
+        public bool UseCurrentArrangement(Setup setup)
+        {
+            if (busy || StreamOn() || !ScreensAreOn(setup) || setup.Screens.Count < 2) return false;
+            Profile now;
+            try { now = LayoutEngine.Capture(setup.Name, false); }
+            catch (Exception ex)
+            {
+                RoomLog.Write("Couldn't record the layout of \"" + setup.Name + "\": " + ex.Message);
+                return false;
+            }
+            if (!ScreenKeys(now).SetEquals(setup.Screens)) return false;
+            now.AudioId = null;
+            now.AudioName = null;
+            setup.Layout = now;
+            setup.Confirmed = true;
+            RoomLog.Write("Saved the arrangement of \"" + setup.Name + "\": " + now.Summary);
+            OptionsEdited();
+            return true;
+        }
+
+        /// <summary>
+        /// A new setup from the screens on now, the main one first, in their current arrangement: what you see is what
+        /// you save. Null when nothing can be saved (no screen on, a stream, a switch running).
+        /// </summary>
+        public Setup SaveCurrentLayout()
+        {
+            if (busy || StreamOn()) return null;
+            Profile now;
+            try
+            {
+                lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
+                Discover(); // every screen on is a known one
+                now = LayoutEngine.Capture("New room", false);
+            }
+            catch (Exception ex)
+            {
+                RoomLog.Write("Couldn't record the layout: " + ex.Message);
+                return null;
+            }
+            var keys = new List<string>();
+            foreach (var d in now.Displays)
+            {
+                string key = d.Identity != null ? ModelKey(d.Identity.DevicePath) : null;
+                if (key == null || FindScreen(key) == null) return null;
+                if (d.Primary) keys.Insert(0, key);
+                else keys.Add(key);
+            }
+            if (keys.Count == 0) return null;
+
+            var setup = new Setup();
+            setup.Id = SetupMigration.NewId();
+            var names = new List<string>();
+            foreach (var k in keys) names.Add(ScreenName(FindScreen(k)));
+            setup.Name = UniqueName(string.Join(" + ", names.ToArray()));
+            setup.Screens.AddRange(keys);
+            if (keys.Count > 1)
+            {
+                now.Name = setup.Name;
+                now.AudioId = null;
+                now.AudioName = null;
+                setup.Layout = now;
+            }
+            setup.Hotkey = NextFreeHotkey();
+            setup.Confirmed = true; // it's on screen now
+            settings.Setups.Add(setup);
+            AssignPadDirections(settings.Setups, settings.SafeSetupId);
+            activeId = FindActiveSetup();
+            RoomLog.Write("New room \"" + setup.Name + "\" from the screens on now: " + now.Summary);
+            OptionsEdited();
+            return setup;
+        }
+
+        /// <summary>"Desk", or "Desk 2" when that is taken; cut to the longest name allowed.</summary>
+        string UniqueName(string name)
+        {
+            if (name.Length > ConfigManager.MaxRoomNameLength) name = name.Substring(0, ConfigManager.MaxRoomNameLength);
+            string candidate = name;
+            for (int n = 2; settings.Setups.Exists(s => string.Equals(s.Name, candidate, StringComparison.OrdinalIgnoreCase)); n++)
+            {
+                string suffix = " " + n;
+                candidate = (name.Length + suffix.Length > ConfigManager.MaxRoomNameLength
+                    ? name.Substring(0, ConfigManager.MaxRoomNameLength - suffix.Length) : name) + suffix;
+            }
+            return candidate;
+        }
+
+        /// <summary>Deletes a setup for good: its screens stay known, so it doesn't come back by itself.</summary>
+        public void DeleteSetup(Setup setup)
+        {
+            if (setup == null || busy || !settings.Setups.Remove(setup)) return;
+            if (settings.SafeSetupId == setup.Id)
+            {
+                var next = SafeSetup;
+                settings.SafeSetupId = next != null ? next.Id : null;
+            }
+            if (pendingAudioSetup == setup) pendingAudioSetup = null;
+            activeId = FindActiveSetup();
+            RoomLog.Write("Deleted room \"" + setup.Name + "\".");
+            OptionsEdited();
         }
 
         // ---------------------------------------------------------------- controller
@@ -1078,15 +1242,15 @@ namespace Displicare.Rooms
                 case PadButton.Down: RoomOverlay.MovePicker(1, PickerMs); break;
                 case PadButton.B: ClosePicker(); break;
                 case PadButton.A:
-                    var room = FindByKey(RoomOverlay.PickerSelection as string);
+                    var setup = FindSetupById(RoomOverlay.PickerSelection as string);
                     ClosePicker();
-                    if (room == null) break;
-                    if (string.Equals(room.Key, activeKey, StringComparison.OrdinalIgnoreCase))
+                    if (setup == null) break;
+                    if (setup.Id == activeId)
                     {
-                        if (settings.RoomShowOverlay) RoomOverlay.ShowNote(room.Name, SwitchNote(room), NoteMs);
+                        if (settings.RoomShowOverlay) RoomOverlay.ShowNote(setup.Name, SwitchNote(setup), NoteMs);
                         break;
                     }
-                    SwitchTo(room, room == HomeRoom); // going home never asks, like the home hotkey
+                    SwitchTo(setup, setup == SafeSetup); // going home never asks, like the home hotkey
                     break;
             }
         }
@@ -1097,39 +1261,39 @@ namespace Displicare.Rooms
         /// </summary>
         void SwitchByPad(string direction)
         {
-            Room room = null;
-            foreach (var r in settings.Rooms) if (!r.Hidden && r.PadDirection == direction) room = r;
-            if (room == null)
+            Setup setup = null;
+            foreach (var s in settings.Setups) if (!s.Hidden && s.PadDirection == direction) setup = s;
+            if (setup == null)
             {
                 RoomLog.Write("Controller: no room on View + " + direction + ".");
                 return;
             }
-            if (string.Equals(room.Key, activeKey, StringComparison.OrdinalIgnoreCase))
+            if (setup.Id == activeId)
             {
-                if (settings.RoomShowOverlay) RoomOverlay.ShowNote(room.Name, SwitchNote(room), NoteMs);
+                if (settings.RoomShowOverlay) RoomOverlay.ShowNote(setup.Name, SwitchNote(setup), NoteMs);
                 return;
             }
-            RoomLog.Write("Controller: View + " + direction + ", \"" + room.Name + "\".");
-            SwitchTo(room, room == HomeRoom); // going home never asks, like the home hotkey
+            RoomLog.Write("Controller: View + " + direction + ", \"" + setup.Name + "\".");
+            SwitchTo(setup, setup == SafeSetup); // going home never asks, like the home hotkey
         }
 
         /// <summary>
-        /// Gives rooms that never had one a controller direction: the home room Up (the way back to the desk), the others
-        /// Right, Left, Down in the order of the Rooms tab. Directions already taken, or set to none, are left alone.
+        /// Gives setups that never had one a controller direction: the safe setup Up (the way back to the desk), the
+        /// others Right, Left, Down in the order of the Rooms tab. Directions already taken, or set to none, are left alone.
         /// </summary>
-        internal static bool AssignPadDirections(IList<Room> rooms, string homeKey)
+        internal static bool AssignPadDirections(IList<Setup> setups, string safeId)
         {
             var taken = new HashSet<string>();
-            foreach (var r in rooms) if (!string.IsNullOrEmpty(r.PadDirection)) taken.Add(r.PadDirection);
-            var order = new List<Room>();
-            foreach (var r in rooms) if (string.Equals(r.Key, homeKey, StringComparison.OrdinalIgnoreCase)) order.Add(r);
-            foreach (var r in rooms) if (!order.Contains(r)) order.Add(r);
+            foreach (var r in setups) if (!string.IsNullOrEmpty(r.PadDirection)) taken.Add(r.PadDirection);
+            var order = new List<Setup>();
+            foreach (var r in setups) if (r.Id == safeId) order.Add(r);
+            foreach (var r in setups) if (!order.Contains(r)) order.Add(r);
 
             bool changed = false;
             foreach (var r in order)
             {
                 if (r.PadDirection != null || r.Hidden) continue;
-                bool home = string.Equals(r.Key, homeKey, StringComparison.OrdinalIgnoreCase);
+                bool home = r.Id == safeId;
                 var preference = home
                     ? new[] { Room.PadUp, Room.PadRight, Room.PadLeft, Room.PadDown }
                     : new[] { Room.PadRight, Room.PadLeft, Room.PadDown, Room.PadUp };
@@ -1159,10 +1323,10 @@ namespace Displicare.Rooms
             int selected = -1;
             foreach (var s in Statuses())
             {
-                if (s.Room.Hidden) continue;
+                if (s.Setup.Hidden) continue;
                 var item = new PickerItem();
-                item.Name = s.Room.Name;
-                item.Tag = s.Room.Key;
+                item.Name = s.Setup.Name;
+                item.Tag = s.Setup.Id;
                 item.Note = s.Active ? "On now" : s.Connected ? "" : "Not connected";
                 // Start on the first other screen that is there: the likely reason for opening the picker.
                 if (selected < 0 && !s.Active && s.Connected) selected = items.Count;
@@ -1466,7 +1630,7 @@ namespace Displicare.Rooms
                     try
                     {
                         lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
-                        activeKey = FindActiveRoom();
+                        activeId = FindActiveSetup();
                         CheckStream(); // the stream may have ended meanwhile
                         if (!StreamOn() && !busy) RememberLayout();
                     }
@@ -1485,16 +1649,16 @@ namespace Displicare.Rooms
         {
             if (hotkeys == null) return;
             hotkeys.UnregisterAll();
-            hotkeyRooms.Clear();
+            hotkeySetups.Clear();
             var failed = new List<string>();
             if (!string.IsNullOrEmpty(settings.RoomHomeHotkey) && !hotkeys.Register(HomeHotkeyId, settings.RoomHomeHotkey))
                 failed.Add(settings.RoomHomeHotkey + " (home)");
-            foreach (var r in settings.Rooms)
+            foreach (var s in settings.Setups)
             {
-                if (r.Hidden || string.IsNullOrEmpty(r.Hotkey)) continue;
-                int id = FirstRoomHotkeyId + hotkeyRooms.Count;
-                hotkeyRooms.Add(r.Key);
-                if (!hotkeys.Register(id, r.Hotkey)) failed.Add(r.Hotkey + " (" + r.Name + ")");
+                if (s.Hidden || string.IsNullOrEmpty(s.Hotkey)) continue;
+                int id = FirstRoomHotkeyId + hotkeySetups.Count;
+                hotkeySetups.Add(s.Id);
+                if (!hotkeys.Register(id, s.Hotkey)) failed.Add(s.Hotkey + " (" + s.Name + ")");
             }
             var fresh = new List<string>();
             foreach (var f in failed) if (reportedHotkeys.Add(f)) fresh.Add(f);
@@ -1509,20 +1673,20 @@ namespace Displicare.Rooms
         {
             if (id == HomeHotkeyId)
             {
-                SwitchTo(HomeRoom, true); // the way back to a known screen: never asks
+                SwitchTo(SafeSetup, true); // the way back to a known screen: never asks
                 return;
             }
             int index = id - FirstRoomHotkeyId;
-            if (index >= 0 && index < hotkeyRooms.Count) SwitchTo(FindByKey(hotkeyRooms[index]), false);
+            if (index >= 0 && index < hotkeySetups.Count) SwitchTo(FindSetupById(hotkeySetups[index]), false);
         }
 
         /// <summary>"Displicare.exe --room Living room" from a second instance (Steam shortcut, Stream Deck).</summary>
         void OnCommand(string[] args)
         {
             if (args.Length < 2 || args[0] != "room") return;
-            var room = FindRoom(string.Join(" ", args, 1, args.Length - 1));
-            if (room == null) RaiseNotify("No room called \"" + string.Join(" ", args, 1, args.Length - 1) + "\"", "", true);
-            else SwitchTo(room, false);
+            var setup = FindSetup(string.Join(" ", args, 1, args.Length - 1));
+            if (setup == null) RaiseNotify("No room called \"" + string.Join(" ", args, 1, args.Length - 1) + "\"", "", true);
+            else SwitchTo(setup, false);
         }
 
         /// <summary>Hands "--room" to the running Displicare. False when it isn't running or has rooms off.</summary>
