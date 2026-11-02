@@ -113,3 +113,13 @@ Versions before 2.1.0 were private test builds (1.x under the earlier name Lumin
   - **Portable Package**: `Displicare-v2.4.5-Portable.zip` (192.1 KB)
     - SHA256: `6BBC3131DED5666DECF806F9A4282450D6A7182DED4DAE39E90657907155BEF1`
 - **Notes**: Brightness from the mouse wheel over the tray icon (5% steps) and optional Ctrl+Alt+Up / Down hotkeys (10% steps), with a level bar above the taskbar; fewer gamma checks from shell events; Reset All no longer blocks the window; dated log lines.
+
+### Version 2.5.0 Release
+- **Release Date**: 2026-11-02 15:41:25
+- **Assembly Version**: 2.5.0.0
+- **Packages in dist/v2.5.0/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.5.0-Setup.exe` (2.13 MB)
+    - SHA256: `FC7B9CB7041761D642CF7DD57712B42A28CB9C02A4D0A246E112D45E882F20AD`
+  - **Portable Package**: `Displicare-v2.5.0-Portable.zip` (209.0 KB)
+    - SHA256: `313EAFD6BD108DF786D88CC32CF73C799837454269034084D2FFA5136FF70226`
+- **Notes**: Room switching becomes display setups: any combination of screens with their places, resolution, refresh rate, HDR and sound, edited like DisplayFusion's monitor profiles (drag and snap, per-screen modes per setup); rooms carry over; the way back (Ctrl+Alt+0 or View + B held 4 s) goes to the safe setup without asking, closes launchers and falls back to every connected screen.
