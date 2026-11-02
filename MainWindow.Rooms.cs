@@ -103,14 +103,14 @@ namespace Displicare
             {
                 if (!_settings.RoomsEnabled)
                 {
-                    _tray.ShowBalloon("Room switching is off", "Turn it on in Displays > General Settings.", true);
+                    _tray.ShowBalloon("Setups are off", "Turn them on in Displays > General Settings.", true);
                     return;
                 }
                 _pendingRoomCommand = room;
                 return;
             }
             var target = _rooms.FindSetup(room);
-            if (target == null) _tray.ShowBalloon("No room called \"" + room + "\"", "", true);
+            if (target == null) _tray.ShowBalloon("No setup called \"" + room + "\"", "", true);
             else _rooms.SwitchTo(target, false);
         }
 
@@ -140,11 +140,11 @@ namespace Displicare
 
             StackRooms.Children.Clear();
             var intro = new StackPanel();
-            intro.Children.Add(RoomsView.Label("Rooms", 13, true, RoomsView.TextPrimary));
-            var text = RoomsView.Label("Every connected screen is a room, and a room can also turn on several screens together. Switching turns on its screens, with the resolution, HDR and sound you use there.", 11, false, RoomsView.TextMuted);
+            intro.Children.Add(RoomsView.Label("Setups", 13, true, RoomsView.TextPrimary));
+            var text = RoomsView.Label("A setup is which screens are on, where they go, and their resolution, HDR and sound. Every screen starts with one of its own; make more, or change them, in the Setups window.", 11, false, RoomsView.TextMuted);
             text.Margin = new Thickness(0, 4, 0, 12);
             intro.Children.Add(text);
-            var open = _roomsView.Pill("⚙  Room settings…");
+            var open = _roomsView.Pill("⚙  Edit setups…");
             open.HorizontalAlignment = HorizontalAlignment.Left;
             open.Click += (o, e) => OpenRoomsWindow();
             intro.Children.Add(open);

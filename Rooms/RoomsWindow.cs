@@ -10,7 +10,7 @@ using System.Windows.Media.Imaging;
 namespace Displicare.Rooms
 {
     /// <summary>
-    /// The big room settings window: rooms on the left, the selected room's settings on the right, options for all
+    /// The Setups window: setups on the left, the selected setup's editor on the right, options for all
     /// rooms underneath the list. Same look as the tray window; opened from the Rooms tab or the tray menu.
     /// </summary>
     internal sealed class RoomsWindow : Window
@@ -20,6 +20,8 @@ namespace Displicare.Rooms
         readonly StackPanel listHost = new StackPanel();
         readonly StackPanel detailHost = new StackPanel();
         string selectedKey;
+        /// <summary>The screen picked in the editor's drawing; null for the setup's main screen.</summary>
+        string selectedScreen;
         bool rebuildPending;
 
         public RoomsWindow(RoomManager rooms, Func<string, object> resource, Action<string, string, bool> notify)
@@ -33,10 +35,10 @@ namespace Displicare.Rooms
                 Dispatcher.BeginInvoke((Action)Rebuild, System.Windows.Threading.DispatcherPriority.Background);
             };
 
-            Title = "Displicare Rooms";
-            Width = 940;
-            Height = 660;
-            MinWidth = 760;
+            Title = "Displicare Setups";
+            Width = 980;
+            Height = 720;
+            MinWidth = 820;
             MinHeight = 520;
             WindowStyle = WindowStyle.None;
             AllowsTransparency = true;
@@ -131,10 +133,10 @@ namespace Displicare.Rooms
 
             var titles = new StackPanel();
             titles.VerticalAlignment = VerticalAlignment.Center;
-            var title = RoomsView.Label("ROOMS", 15, true, RoomsView.TextPrimary);
+            var title = RoomsView.Label("SETUPS", 15, true, RoomsView.TextPrimary);
             title.FontWeight = FontWeights.Bold;
             titles.Children.Add(title);
-            titles.Children.Add(RoomsView.Label("Displicare · your screens, alone or together, each room with its own resolution, HDR and sound", 11, false, RoomsView.TextMuted));
+            titles.Children.Add(RoomsView.Label("Displicare · which screens are on, where they go, and their resolution, HDR and sound: switch with a click, hotkey or controller", 11, false, RoomsView.TextMuted));
             Grid.SetColumn(titles, 1);
             grid.Children.Add(titles);
 
@@ -160,6 +162,7 @@ namespace Displicare.Rooms
 
         public void Select(string key)
         {
+            if (key != selectedKey) selectedScreen = null;
             selectedKey = key;
             Rebuild();
         }
@@ -182,25 +185,25 @@ namespace Displicare.Rooms
             }
 
             listHost.Children.Clear();
-            listHost.Children.Add(RoomsView.SectionLabel("ROOMS"));
+            listHost.Children.Add(RoomsView.SectionLabel("SETUPS"));
             foreach (var s in statuses) listHost.Children.Add(Tile(s, s == selected));
 
-            // What you see is what you save: arrange the screens in Windows, then keep that as a room
-            var save = view.Pill("+  Save the screens on now as a room");
-            save.HorizontalAlignment = HorizontalAlignment.Stretch;
-            save.Margin = new Thickness(0, 0, 0, 4);
-            save.IsEnabled = !rooms.Busy;
-            save.ToolTip = "Turn on the screens you want together and arrange them in Windows Settings > Display; this keeps exactly that (which screens, where, resolution and HDR) as a new room you can switch to.";
-            save.Click += (o, e) =>
+            // Starts as the screens on now; the editor changes it from there
+            var add = view.Pill("+  New setup");
+            add.HorizontalAlignment = HorizontalAlignment.Stretch;
+            add.Margin = new Thickness(0, 0, 0, 4);
+            add.IsEnabled = !rooms.Busy;
+            add.ToolTip = "A new setup, starting as the screens on now: then add or leave out screens, drag them where you want them, and pick their resolution and HDR.";
+            add.Click += (o, e) =>
             {
-                var added = rooms.SaveCurrentLayout();
+                var added = rooms.NewSetup();
                 if (added != null) Select(added.Id);
-                else view.Notify("Couldn't save the screens", "No screen is on, or a stream or a switch is running.", true);
+                else view.Notify("Couldn't make a setup", "No screen is on, or a stream or a switch is running.", true);
             };
-            listHost.Children.Add(save);
+            listHost.Children.Add(add);
             if (statuses.Count == 0)
                 listHost.Children.Add(RoomsView.Label("No screens found yet. Connected TVs and monitors show up here on their own.", 11.5, false, RoomsView.TextMuted));
-            listHost.Children.Add(RoomsView.SectionLabel("ALL ROOMS"));
+            listHost.Children.Add(RoomsView.SectionLabel("ALL SETUPS"));
             listHost.Children.Add(view.Card(view.GeneralSettings(statuses, 100), false));
 
             detailHost.Children.Clear();
@@ -222,10 +225,10 @@ namespace Displicare.Rooms
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var icon = RoomsView.Label(RoomsView.Icon(s), 22, false, RoomsView.TextPrimary);
-            icon.Margin = new Thickness(0, 0, 10, 0);
-            icon.VerticalAlignment = VerticalAlignment.Center;
-            grid.Children.Add(icon);
+            var thumb = RoomsView.Thumbnail(s.Boxes, 46, 28);
+            thumb.Margin = new Thickness(0, 0, 10, 0);
+            thumb.VerticalAlignment = VerticalAlignment.Center;
+            grid.Children.Add(thumb);
 
             var text = new StackPanel();
             var top = new Grid();
@@ -258,10 +261,10 @@ namespace Displicare.Rooms
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             top.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var icon = RoomsView.Label(RoomsView.Icon(s), 34, false, RoomsView.TextPrimary);
-            icon.Margin = new Thickness(0, 0, 14, 0);
-            icon.VerticalAlignment = VerticalAlignment.Center;
-            top.Children.Add(icon);
+            var thumb = RoomsView.Thumbnail(s.Boxes, 64, 38);
+            thumb.Margin = new Thickness(0, 0, 14, 0);
+            thumb.VerticalAlignment = VerticalAlignment.Center;
+            top.Children.Add(thumb);
 
             var titles = new StackPanel();
             titles.VerticalAlignment = VerticalAlignment.Center;
@@ -273,6 +276,13 @@ namespace Displicare.Rooms
             top.Children.Add(titles);
 
             var go = view.SwitchButton(s);
+            if (s.Active && !rooms.Busy)
+            {
+                // Edits apply on the next switch; this is that switch for the setup already on screen.
+                go.Content = "Apply";
+                go.ToolTip = "Switches to this setup again, so changes made here take effect now.";
+                go.IsEnabled = true;
+            }
             go.Padding = new Thickness(18, 10, 18, 10);
             go.FontSize = 13;
             go.VerticalAlignment = VerticalAlignment.Center;
@@ -287,7 +297,11 @@ namespace Displicare.Rooms
             line.Margin = new Thickness(0, 16, 0, 16);
             stack.Children.Add(line);
 
-            stack.Children.Add(view.RoomSettings(s));
+            stack.Children.Add(view.SetupEditor(s, selectedScreen, key =>
+            {
+                selectedScreen = key;
+                Rebuild();
+            }));
             var card = view.Card(stack, s.Active);
             card.Padding = new Thickness(22, 20, 22, 20);
             return card;

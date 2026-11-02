@@ -35,6 +35,8 @@ namespace Displicare.Rooms
         readonly Timer timer = new Timer();
         int selected;
         int remainingMs;
+        /// <summary>Height of the note's detail, wrapped to the note's width.</summary>
+        int detailHeight;
         Rectangle bounds;
 
         static readonly Color Back = Color.FromArgb(30, 21, 32);
@@ -73,7 +75,7 @@ namespace Displicare.Rooms
         /// <summary>The room picker in the middle of the primary screen; closes itself after <paramref name="milliseconds"/>.</summary>
         public static void ShowPicker(List<PickerItem> items, int selected, int milliseconds)
         {
-            Replace(new RoomOverlay("Switch room", null, items, selected, milliseconds));
+            Replace(new RoomOverlay("Switch setup", null, items, selected, milliseconds));
         }
 
         public static bool PickerOpen { get { return current != null && current.items != null; } }
@@ -135,7 +137,7 @@ namespace Displicare.Rooms
 
             if (level >= 0) scale = s > 0 ? s : 1f; // desk-sized: it's seen up close, not from the couch
             var size = level >= 0 ? new Size(Px(320), Px(78))
-                : items != null ? new Size(Px(520), Px(104 + 64 * items.Count)) : new Size(Px(600), Px(detail != null ? 112 : 76));
+                : items != null ? new Size(Px(520), Px(104 + 64 * items.Count)) : NoteSize(work);
             var location = level >= 0
                 ? new Point(work.Left + (work.Width - size.Width) / 2, work.Bottom - size.Height - Px(24))
                 : items != null
@@ -155,6 +157,27 @@ namespace Displicare.Rooms
         }
 
         int Px(float v) { return (int)Math.Round(v * scale); }
+
+        /// <summary>
+        /// A note as wide as its text needs (at least 600, at most 90% of the screen); a detail longer than that wraps.
+        /// </summary>
+        Size NoteSize(Rectangle work)
+        {
+            int pad = Px(24);
+            int max = Math.Max(Px(600), (int)(work.Width * 0.9));
+            using (var titleFont = new Font("Segoe UI Semibold", Px(26), GraphicsUnit.Pixel))
+            using (var bodyFont = new Font("Segoe UI", Px(17), GraphicsUnit.Pixel))
+            {
+                var flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine;
+                int width = TextRenderer.MeasureText(title ?? "", titleFont, Size.Empty, flags).Width;
+                if (detail != null) width = Math.Max(width, TextRenderer.MeasureText(detail, bodyFont, Size.Empty, flags).Width);
+                width = Math.Min(max, Math.Max(Px(600), width + 2 * pad + Px(4)));
+                if (detail == null) return new Size(width, Px(76));
+                detailHeight = TextRenderer.MeasureText(detail, bodyFont, new Size(width - 2 * pad, int.MaxValue),
+                    TextFormatFlags.NoPadding | TextFormatFlags.WordBreak).Height;
+                return new Size(width, Px(62 + 22) + detailHeight);
+            }
+        }
 
         protected override bool ShowWithoutActivation { get { return true; } }
 
@@ -210,7 +233,8 @@ namespace Displicare.Rooms
                 if (items == null)
                 {
                     if (detail != null)
-                        TextRenderer.DrawText(g, detail, bodyFont, new Rectangle(pad, Px(62), ClientSize.Width - 2 * pad, Px(28)), Muted, flags);
+                        TextRenderer.DrawText(g, detail, bodyFont, new Rectangle(pad, Px(62), ClientSize.Width - 2 * pad, Math.Max(Px(28), detailHeight + Px(4))), Muted,
+                            TextFormatFlags.NoPadding | TextFormatFlags.WordBreak | TextFormatFlags.EndEllipsis);
                     return;
                 }
 

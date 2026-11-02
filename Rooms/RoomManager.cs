@@ -6,7 +6,27 @@ using System.Windows.Threading;
 
 namespace Displicare.Rooms
 {
-    /// <summary>What the Rooms tab and window show for one setup (shown as a room until the UI is renamed).</summary>
+    /// <summary>What the setup editor shows for one known screen.</summary>
+    internal sealed class ScreenInfo
+    {
+        public KnownScreen Screen;
+        public bool Connected;
+        public bool Active;
+        /// <summary>e.g. "HDMI · NVIDIA".</summary>
+        public string Connection;
+        /// <summary>Modes for the drop-downs, best first.</summary>
+        public List<DisplayMode> Modes;
+        /// <summary>True until the screen has been on: Modes then come from the EDID and may not all work.</summary>
+        public bool ModesFromEdid;
+        /// <summary>The native resolution from the EDID, if known.</summary>
+        public DisplayMode? Native;
+        public bool HdrCapable;
+        public bool IsTv;
+
+        public string Name { get { return RoomManager.ScreenName(Screen); } }
+    }
+
+    /// <summary>What the Setups tab and window show for one setup.</summary>
     internal sealed class RoomStatus
     {
         public Setup Setup;
@@ -28,6 +48,9 @@ namespace Displicare.Rooms
         public string AlsoOnNames;
         /// <summary>Those of them that aren't connected now, or null.</summary>
         public string MissingNames;
+        public bool IsTv;
+        /// <summary>Where its screens go, in <see cref="Setup.Screens"/> order: for the drawing on its card.</summary>
+        public List<Box> Boxes;
     }
 
     /// <summary>
@@ -141,29 +164,50 @@ namespace Displicare.Rooms
             bool changed = false;
             foreach (var room in settings.KnownScreens)
             {
-                if (room.Width <= 0 && room.RefreshHz <= 0) continue;
-                var offered = MergeModes(room.KnownModes, null);
-                if (offered.Count == 0) continue;
-                var native = Edid.Preferred(EdidFor(room));
                 int width = room.Width, height = room.Height, hz = room.RefreshHz;
-                if (width <= 0)
-                {
-                    // Already "Native": check the refresh rate against the native size.
-                    var best = LayoutEngine.PickMode(offered, 0, 0, 0,
-                        native != null ? native.Value.Width : 0, native != null ? native.Value.Height : 0);
-                    if (best == null) continue;
-                    width = best.Value.Width;
-                    height = best.Value.Height;
-                }
-                AsDefaults(offered, native, ref width, ref height, ref hz);
-                if (width == room.Width && height == room.Height && hz == room.RefreshHz) continue;
+                if (!TidyMode(room, ref width, ref height, ref hz)) continue;
                 room.Width = width;
                 room.Height = height;
                 room.RefreshHz = hz;
-                RoomLog.Write(ScreenName(room) + " now uses " + RoomsView.Summary(room));
                 changed = true;
             }
+            foreach (var setup in settings.Setups)
+                foreach (var e in setup.Placement)
+                {
+                    int width = e.Width, height = e.Height, hz = e.RefreshHz;
+                    if (!TidyMode(FindScreen(e.Key), ref width, ref height, ref hz)) continue;
+                    e.Width = width;
+                    e.Height = height;
+                    e.RefreshHz = hz;
+                    RoomLog.Write(ScreenName(FindScreen(e.Key)) + " in \"" + setup.Name + "\" now uses " + RoomsView.Summary(e));
+                    changed = true;
+                }
             if (changed) save();
+        }
+
+        /// <summary>Whether an exact mode is what "Native" / "Highest" pick for the screen; then they are set to 0.</summary>
+        bool TidyMode(KnownScreen screen, ref int width, ref int height, ref int hz)
+        {
+            if (screen == null || (width <= 0 && hz <= 0)) return false;
+            var offered = MergeModes(screen.KnownModes, null);
+            if (offered.Count == 0) return false;
+            var native = Edid.Preferred(EdidFor(screen));
+            int w = width, h = height, r = hz;
+            if (w <= 0)
+            {
+                // Already "Native": check the refresh rate against the native size.
+                var best = LayoutEngine.PickMode(offered, 0, 0, 0,
+                    native != null ? native.Value.Width : 0, native != null ? native.Value.Height : 0);
+                if (best == null) return false;
+                w = best.Value.Width;
+                h = best.Value.Height;
+            }
+            AsDefaults(offered, native, ref w, ref h, ref r);
+            if (w == width && h == height && r == hz) return false;
+            width = w;
+            height = h;
+            hz = r;
+            return true;
         }
 
         /// <summary>"LG TV SSCR2", or the key for a screen without an EDID name.</summary>
@@ -253,6 +297,7 @@ namespace Displicare.Rooms
                     if (FindSetupById(setup.Id) != null) setup.Id = SetupMigration.NewId();
                     setup.Name = t.Identity.DisplayName;
                     setup.Screens.Add(key);
+                    setup.Placement.Add(SetupMigration.EntryFor(screen));
                     setup.Hotkey = NextFreeHotkey();
                     settings.Setups.Add(setup);
                     added = true;
@@ -434,18 +479,15 @@ namespace Displicare.Rooms
                 s.Setup = setup;
                 s.Screen = FindScreen(setup.MainScreen);
                 s.Active = setup.Id == activeId;
-                foreach (var t in lastTargets)
-                {
-                    if (!t.Available || t.Identity == null || !string.Equals(ModelKey(t.Identity.DevicePath), setup.MainScreen, StringComparison.OrdinalIgnoreCase)) continue;
-                    s.Connected = true;
-                    s.Connection = DisplayConfigApi.OutputName(t.OutputTechnology) + " · " + GpuName(t.Identity.AdapterPath);
-                }
-                byte[] edid = EdidFor(s.Screen);
-                s.Native = Edid.Preferred(edid);
-                s.HdrCapable = Edid.SupportsHdr(edid);
-                // Once the screen has been on, only offer what Windows actually allowed on this connection.
-                s.ModesFromEdid = s.Screen == null || s.Screen.KnownModes.Count == 0;
-                s.Modes = MergeModes(s.Screen != null ? s.Screen.KnownModes : null, s.ModesFromEdid ? Edid.Modes(edid) : null);
+                var info = Describe(s.Screen);
+                s.Connected = info.Connected;
+                s.Connection = info.Connection;
+                s.Native = info.Native;
+                s.HdrCapable = info.HdrCapable;
+                s.ModesFromEdid = info.ModesFromEdid;
+                s.Modes = info.Modes;
+                s.IsTv = info.IsTv;
+                s.Boxes = Boxes(setup, setup.Screens, NativeOf);
                 if (setup.Screens.Count > 1)
                 {
                     var names = new List<string>();
@@ -462,6 +504,87 @@ namespace Displicare.Rooms
                 list.Add(s);
             }
             return list;
+        }
+
+        /// <summary>Every known screen, for the setup editor: connected ones first.</summary>
+        public List<ScreenInfo> ScreenInfos()
+        {
+            var list = new List<ScreenInfo>();
+            foreach (var screen in settings.KnownScreens) list.Add(Describe(screen));
+            var sorted = new List<ScreenInfo>();
+            foreach (var i in list) if (i.Connected) sorted.Add(i);
+            foreach (var i in list) if (!i.Connected) sorted.Add(i);
+            return sorted;
+        }
+
+        public ScreenInfo Describe(KnownScreen screen)
+        {
+            var info = new ScreenInfo();
+            info.Screen = screen;
+            if (screen == null) { info.Modes = new List<DisplayMode>(); info.ModesFromEdid = true; return info; }
+            info.Connected = IsConnected(screen.Key);
+            info.Active = IsActive(screen.Key);
+            foreach (var t in lastTargets)
+                if (t.Available && t.Identity != null && string.Equals(ModelKey(t.Identity.DevicePath), screen.Key, StringComparison.OrdinalIgnoreCase))
+                {
+                    info.Connection = DisplayConfigApi.OutputName(t.OutputTechnology) + " · " + GpuName(t.Identity.AdapterPath);
+                    info.IsTv = DisplayConfigApi.OutputName(t.OutputTechnology).StartsWith("HDMI");
+                }
+            byte[] edid = EdidFor(screen);
+            info.Native = Edid.Preferred(edid);
+            info.HdrCapable = Edid.SupportsHdr(edid);
+            // Once the screen has been on, only offer what Windows actually allowed on this connection.
+            info.ModesFromEdid = screen.KnownModes.Count == 0;
+            info.Modes = MergeModes(screen.KnownModes, info.ModesFromEdid ? Edid.Modes(edid) : null);
+            if ((screen.DisplayName ?? "").ToUpperInvariant().Contains("TV")) info.IsTv = true;
+            return info;
+        }
+
+        /// <summary>
+        /// The size a screen has in a setup: its resolution there, else its native one, else where it was placed, else
+        /// 1920 x 1080.
+        /// </summary>
+        public static void SizeIn(SetupScreen entry, DisplayMode? native, out int width, out int height)
+        {
+            if (entry != null && entry.Width > 0) { width = entry.Width; height = entry.Height; return; }
+            if (native != null) { width = native.Value.Width; height = native.Value.Height; return; }
+            if (entry != null && entry.Placed) { width = entry.PlacedWidth; height = entry.PlacedHeight; return; }
+            width = 1920;
+            height = 1080;
+        }
+
+        /// <summary>
+        /// Where the setup's screens go, in <see cref="Setup.Screens"/> order, main at 0,0: as placed, tidied so that a
+        /// screen at another size or one left out leaves no gap or overlap. Unplaced screens go to the right.
+        /// </summary>
+        internal static List<Box> Boxes(Setup setup, IList<string> keys, Func<string, DisplayMode?> native)
+        {
+            var boxes = new List<Box>();
+            var placed = new List<Box>();
+            var unplaced = new List<int>();
+            foreach (var key in keys)
+            {
+                var e = setup.Entry(key);
+                int w, h;
+                SizeIn(e, native(key), out w, out h);
+                if (e != null && e.Placed) placed.Add(new Box(key, e.X, e.Y, w, h));
+                else unplaced.Add(boxes.Count);
+                boxes.Add(new Box(key, e != null ? e.X : 0, e != null ? e.Y : 0, w, h));
+            }
+            if (boxes.Count == 0) return boxes;
+            // The main screen leads even when it hasn't been placed.
+            if (unplaced.Contains(0)) { placed.Insert(0, boxes[0].At(0, 0)); unplaced.Remove(0); boxes[0] = boxes[0].At(0, 0); }
+            var tidy = Arrangement.Tidy(placed); // the main screen is first in it
+            foreach (int i in unplaced) tidy.Add(Arrangement.Append(tidy, boxes[i]));
+            var result = new List<Box>();
+            foreach (var key in keys) result.Add(tidy.Find(b => string.Equals(b.Key, key, StringComparison.OrdinalIgnoreCase)));
+            return result;
+        }
+
+        /// <summary>A known screen's native resolution from its EDID, or null.</summary>
+        public DisplayMode? NativeOf(string key)
+        {
+            return Edid.Preferred(EdidFor(FindScreen(key)));
         }
 
         byte[] EdidFor(KnownScreen screen)
@@ -551,9 +674,9 @@ namespace Displicare.Rooms
         // ---------------------------------------------------------------- learning
 
         /// <summary>
-        /// Remembers which modes each screen on offers, and the mode and HDR of a screen on by itself in its own setup. Runs
+        /// Remembers which modes each screen on offers, and the mode and HDR of a screen on by itself in a setup of its own. Runs
         /// after display changes and right before switching away, so a setting changed in Windows is kept for next time.
-        /// A setup's screens and arrangement never change on their own (<see cref="UseCurrentArrangement"/>). Sound is
+        /// A setup's screens and places never change on their own, only in the editor. Sound is
         /// learned from the user's own default-output changes instead (<see cref="OnDefaultAudioChanged"/>).
         /// </summary>
         void Learn()
@@ -579,26 +702,33 @@ namespace Displicare.Rooms
                 // Mode and HDR only from a screen on by itself: next to others it may run as the setup arranged it.
                 if (!alone || !string.Equals(screen.Key, active.MainScreen, StringComparison.OrdinalIgnoreCase)) continue;
 
+                var entry = active.Entry(screen.Key);
+                if (entry == null) continue;
                 bool modeChanged = false;
                 int width = display.Width, height = display.Height, hz = (int)Math.Round(display.RefreshHz);
                 if (offered != null) AsDefaults(offered, Edid.Preferred(EdidFor(screen)), ref width, ref height, ref hz);
-                if (screen.Width != width || screen.Height != height || screen.RefreshHz != hz)
+                if (entry.Width != width || entry.Height != height || entry.RefreshHz != hz)
                 {
-                    screen.Width = width;
-                    screen.Height = height;
-                    screen.RefreshHz = hz;
+                    entry.Width = width;
+                    entry.Height = height;
+                    entry.RefreshHz = hz;
                     modeChanged = true;
                 }
                 if (display.Hdr >= 0)
                 {
                     // HDR on keeps "auto"; turning it off in Windows is remembered as off.
-                    string hdr = display.Hdr == 1 ? (screen.Hdr == Room.HdrOff ? Room.HdrOn : screen.Hdr) : Room.HdrOff;
-                    if (screen.Hdr != hdr) { screen.Hdr = hdr; modeChanged = true; }
+                    string hdr = display.Hdr == 1 ? (entry.Hdr == Room.HdrOff ? Room.HdrOn : entry.Hdr) : Room.HdrOff;
+                    if (entry.Hdr != hdr) { entry.Hdr = hdr; modeChanged = true; }
                 }
+                // New setups with this screen start out like this.
+                screen.Width = entry.Width;
+                screen.Height = entry.Height;
+                screen.RefreshHz = entry.RefreshHz;
+                screen.Hdr = entry.Hdr;
                 if (modeChanged)
                 {
                     changed = true;
-                    RoomLog.Write("Learned " + ScreenName(screen) + ": " + RoomsView.Summary(screen));
+                    RoomLog.Write("Learned " + ScreenName(screen) + " in \"" + active.Name + "\": " + RoomsView.Summary(entry));
                 }
             }
             if (changed) save();
@@ -746,7 +876,7 @@ namespace Displicare.Rooms
             if (setup == null || busy) return;
             if (CanSwitch != null && !CanSwitch())
             {
-                RaiseNotify("Can't switch rooms right now", "Finish the hardware test first.", true);
+                RaiseNotify("Can't switch setups right now", "Finish the hardware test first.", true);
                 return;
             }
             try
@@ -830,6 +960,9 @@ namespace Displicare.Rooms
             lastSwitchUtc = DateTime.UtcNow;
             // Going back restores the old output too; that isn't the user picking one.
             ignoreAudioChangesUntil = DateTime.UtcNow.AddSeconds(5);
+            // The screens on now, not before the switch: the note says which of the setup's screens came on.
+            try { lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS)); }
+            catch (Exception ex) { RoomLog.Write("Couldn't read the screens after switching: " + ex.Message); }
             if (result.Success && !result.Reverted)
             {
                 if (asked && !setup.Confirmed)
@@ -871,10 +1004,10 @@ namespace Displicare.Rooms
                     foreach (var key in setup.Screens)
                     {
                         if (IsActive(key)) on.Add(ScreenName(FindScreen(key)));
-                        else missing.Add(ScreenName(FindScreen(key)));
+                        else missing.Add(ScreenName(FindScreen(key)) + (IsConnected(key) ? " didn't turn on" : " not connected"));
                     }
                     parts.Add(string.Join(" + ", on.ToArray()));
-                    foreach (var m in missing) parts.Add(m + " not connected");
+                    parts.AddRange(missing);
                 }
                 foreach (var d in DisplayTopology.GetActiveDisplays())
                 {
@@ -911,39 +1044,26 @@ namespace Displicare.Rooms
         }
 
         /// <summary>
-        /// The layout for switching to a setup: its saved arrangement when every one of its screens is connected, else
-        /// its main screen with the connected others side by side to its right, each in its own mode. Null when the main
-        /// screen isn't known.
+        /// The layout for switching to a setup: its screens where it puts them, each with its resolution, refresh rate and
+        /// HDR there. Other screens that aren't connected are left out (the rest close up). Null when the main screen
+        /// isn't known.
         /// </summary>
         Profile SetupProfile(Setup setup)
         {
-            var main = FindScreen(setup.MainScreen);
-            if (main == null) return null;
-            var native = Edid.Preferred(EdidFor(main));
-            var others = new List<KnownScreen>();
-            var natives = new List<DisplayMode?>();
-            for (int i = 1; i < setup.Screens.Count; i++)
+            if (FindScreen(setup.MainScreen) == null) return null;
+            var screens = new List<KnownScreen>();
+            for (int i = 0; i < setup.Screens.Count; i++)
             {
-                var other = FindScreen(setup.Screens[i]);
-                if (other == null) continue;
-                if (!IsConnected(other.Key))
+                var screen = FindScreen(setup.Screens[i]);
+                if (screen == null) continue;
+                if (i > 0 && !IsConnected(screen.Key))
                 {
-                    RoomLog.Write(ScreenName(other) + " isn't connected, so \"" + setup.Name + "\" goes without it.");
+                    RoomLog.Write(ScreenName(screen) + " isn't connected, so \"" + setup.Name + "\" goes without it.");
                     continue;
                 }
-                others.Add(other);
-                natives.Add(Edid.Preferred(EdidFor(other)));
+                screens.Add(screen);
             }
-            if (others.Count == 0) return BuildProfile(main, native, setup.Name);
-
-            if (others.Count == setup.Screens.Count - 1 && UsableLayout(setup.Layout)
-                && ScreenKeys(setup.Layout).SetEquals(setup.Screens))
-            {
-                bool all = true;
-                foreach (var d in setup.Layout.Displays) if (LayoutEngine.MatchTarget(d.Identity, lastTargets) < 0) all = false;
-                if (all) return setup.Layout;
-            }
-            return BuildCombo(setup.Name, main, native, others, natives);
+            return BuildSetupProfile(setup, screens, NativeOf);
         }
 
         bool IsConnected(string key)
@@ -963,33 +1083,41 @@ namespace Displicare.Rooms
         }
 
         /// <summary>
-        /// The main screen (at 0,0) with other screens side by side to its right, each in its own mode and HDR. Used until
-        /// the setup has a saved arrangement.
+        /// The setup's screens (the main one first; others already left out when missing) at their places, main at 0,0
+        /// and primary, each in its resolution, refresh rate and HDR in this setup. Sound is handled separately
+        /// (<see cref="BeginSetupAudio"/>).
         /// </summary>
-        internal static Profile BuildCombo(string name, KnownScreen main, DisplayMode? native, IList<KnownScreen> others, IList<DisplayMode?> otherNatives)
+        internal static Profile BuildSetupProfile(Setup setup, IList<KnownScreen> screens, Func<string, DisplayMode?> native)
         {
-            var profile = BuildProfile(main, native, name);
-            int x = Wide(profile.Displays[0]);
-            for (int i = 0; i < others.Count; i++)
+            var keys = new List<string>();
+            foreach (var screen in screens) keys.Add(screen.Key);
+            var boxes = Boxes(setup, keys, native);
+
+            var profile = new Profile();
+            profile.Name = setup.Name;
+            for (int i = 0; i < screens.Count; i++)
             {
-                var d = BuildProfile(others[i], i < otherNatives.Count ? otherNatives[i] : null, name).Displays[0];
-                d.Primary = false;
-                d.X = x;
-                d.Y = 0;
-                x += Wide(d);
-                profile.Displays.Add(d);
+                var display = Display(screens[i], setup.Entry(screens[i].Key) ?? SetupMigration.EntryFor(screens[i]), native(screens[i].Key));
+                display.Primary = i == 0;
+                display.X = boxes[i].X;
+                display.Y = boxes[i].Y;
+                profile.Displays.Add(display);
             }
             return profile;
         }
 
-        /// <summary>The width a display will have: its set width, else its native one, else a guess.</summary>
-        static int Wide(ProfileDisplay d)
+        /// <summary>One screen on by itself, in the mode it last used on its own.</summary>
+        internal static Profile BuildProfile(KnownScreen screen, DisplayMode? native, string name)
         {
-            return d.Width > 0 ? d.Width : d.NativeWidth > 0 ? d.NativeWidth : 1920;
+            var profile = new Profile();
+            profile.Name = name;
+            var display = Display(screen, SetupMigration.EntryFor(screen), native);
+            display.Primary = true;
+            profile.Displays.Add(display);
+            return profile;
         }
 
-        /// <summary>One screen on by itself, as the main one. Sound is handled separately (<see cref="BeginSetupAudio"/>).</summary>
-        internal static Profile BuildProfile(KnownScreen screen, DisplayMode? native, string name)
+        static ProfileDisplay Display(KnownScreen screen, SetupScreen entry, DisplayMode? native)
         {
             var id = new DisplayIdentity();
             id.DevicePath = screen.DevicePath;
@@ -1001,21 +1129,16 @@ namespace Displicare.Rooms
 
             var display = new ProfileDisplay();
             display.Identity = id;
-            display.Primary = true;
-            display.Width = screen.Width;
-            display.Height = screen.Height;
-            display.RefreshHz = screen.RefreshHz;
-            display.Hdr = screen.Hdr == Room.HdrOn ? 1 : screen.Hdr == Room.HdrOff ? 0 : 2;
+            display.Width = entry.Width;
+            display.Height = entry.Height;
+            display.RefreshHz = entry.RefreshHz;
+            display.Hdr = entry.Hdr == Room.HdrOn ? 1 : entry.Hdr == Room.HdrOff ? 0 : 2;
             if (native != null)
             {
                 display.NativeWidth = native.Value.Width;
                 display.NativeHeight = native.Value.Height;
             }
-
-            var profile = new Profile();
-            profile.Name = name;
-            profile.Displays.Add(display);
-            return profile;
+            return display;
         }
 
         /// <summary>
@@ -1061,32 +1184,20 @@ namespace Displicare.Rooms
         // ---------------------------------------------------------------- editing setups
 
         /// <summary>
-        /// Settings changed in the tab or window. Only new screens or a new resolution or refresh rate can leave a screen
-        /// black, so only that makes the next switch ask again; names, sound, HDR and hotkeys don't.
+        /// A setup changed in the tab or window. Only other screens, places or a new resolution or refresh rate can leave
+        /// a screen black, so only that (<paramref name="layoutChanged"/>) makes the next switch ask again; names, sound,
+        /// HDR and hotkeys don't.
         /// </summary>
-        public void SetupEdited(Setup setup, bool screensChanged)
+        public void SetupEdited(Setup setup, bool layoutChanged)
         {
-            if (setup != null && screensChanged)
-            {
-                setup.Confirmed = false;
-                // Saved for other screens: no longer fits.
-                if (setup.Layout != null && !ScreenKeys(setup.Layout).SetEquals(setup.Screens)) setup.Layout = null;
-            }
-            OptionsEdited();
-        }
-
-        /// <summary>A screen's own resolution or refresh rate changed: every setup with it asks again.</summary>
-        public void ScreenEdited(KnownScreen screen, bool modeChanged)
-        {
-            if (screen != null && modeChanged)
-                foreach (var s in settings.Setups)
-                    if (s.Screens.Exists(k => string.Equals(k, screen.Key, StringComparison.OrdinalIgnoreCase))) s.Confirmed = false;
+            if (setup != null && layoutChanged) setup.Confirmed = false;
             OptionsEdited();
         }
 
         /// <summary>Options for all setups changed (or a setup did): save and apply.</summary>
         public void OptionsEdited()
         {
+            activeId = FindActiveSetup();
             save();
             RegisterHotkeys();
             ApplyController();
@@ -1094,7 +1205,7 @@ namespace Displicare.Rooms
             RaiseChanged();
         }
 
-        /// <summary>Whether exactly this setup's screens are on now, so its arrangement can be taken from Windows.</summary>
+        /// <summary>Whether exactly this setup's screens are on now.</summary>
         public bool ScreensAreOn(Setup setup)
         {
             if (setup == null) return false;
@@ -1105,79 +1216,192 @@ namespace Displicare.Rooms
         }
 
         /// <summary>
-        /// Takes the arrangement of the screens on now (positions, exact modes, HDR) for the setup, whose screens they
-        /// must be. Keeping it is the user's choice, so it counts as kept and doesn't ask on the next switch.
+        /// The screens on now, the main one first, each where it is and in its current mode (as "Native" / "Highest"
+        /// when that's what it is). False when nothing can be read (no screen on, a stream, a switch running).
         /// </summary>
-        public bool UseCurrentArrangement(Setup setup)
+        bool CaptureNow(out List<string> keys, out List<SetupScreen> placement)
         {
-            if (busy || StreamOn() || !ScreensAreOn(setup) || setup.Screens.Count < 2) return false;
-            Profile now;
-            try { now = LayoutEngine.Capture(setup.Name, false); }
-            catch (Exception ex)
-            {
-                RoomLog.Write("Couldn't record the layout of \"" + setup.Name + "\": " + ex.Message);
-                return false;
-            }
-            if (!ScreenKeys(now).SetEquals(setup.Screens)) return false;
-            now.AudioId = null;
-            now.AudioName = null;
-            setup.Layout = now;
-            setup.Confirmed = true;
-            RoomLog.Write("Saved the arrangement of \"" + setup.Name + "\": " + now.Summary);
-            OptionsEdited();
-            return true;
-        }
-
-        /// <summary>
-        /// A new setup from the screens on now, the main one first, in their current arrangement: what you see is what
-        /// you save. Null when nothing can be saved (no screen on, a stream, a switch running).
-        /// </summary>
-        public Setup SaveCurrentLayout()
-        {
-            if (busy || StreamOn()) return null;
+            keys = new List<string>();
+            placement = new List<SetupScreen>();
+            if (busy || StreamOn()) return false;
             Profile now;
             try
             {
                 lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
                 Discover(); // every screen on is a known one
-                now = LayoutEngine.Capture("New room", false);
+                Learn(); // and its offered modes are known
+                now = LayoutEngine.Capture("Now", false);
             }
             catch (Exception ex)
             {
-                RoomLog.Write("Couldn't record the layout: " + ex.Message);
-                return null;
+                RoomLog.Write("Couldn't read the screens on now: " + ex.Message);
+                return false;
             }
-            var keys = new List<string>();
             foreach (var d in now.Displays)
             {
                 string key = d.Identity != null ? ModelKey(d.Identity.DevicePath) : null;
-                if (key == null || FindScreen(key) == null) return null;
-                if (d.Primary) keys.Insert(0, key);
-                else keys.Add(key);
+                var screen = FindScreen(key);
+                if (screen == null) return false;
+                var e = new SetupScreen();
+                e.Key = screen.Key;
+                e.X = d.X;
+                e.Y = d.Y;
+                e.PlacedWidth = d.Width;
+                e.PlacedHeight = d.Height;
+                int width = d.Width, height = d.Height, hz = (int)Math.Round(d.RefreshHz);
+                AsDefaults(MergeModes(screen.KnownModes, null), NativeOf(key), ref width, ref height, ref hz);
+                e.Width = width;
+                e.Height = height;
+                e.RefreshHz = hz;
+                e.Hdr = d.Hdr == 0 ? Room.HdrOff : Room.HdrAuto;
+                if (d.Primary)
+                {
+                    keys.Insert(0, key);
+                    placement.Insert(0, e);
+                }
+                else
+                {
+                    keys.Add(key);
+                    placement.Add(e);
+                }
             }
-            if (keys.Count == 0) return null;
+            return keys.Count > 0;
+        }
 
+        /// <summary>
+        /// A new setup from the screens on now, as they are: what you see is what you save. It's on screen, so it counts
+        /// as kept. Null when nothing can be read.
+        /// </summary>
+        public Setup NewSetup()
+        {
+            List<string> keys;
+            List<SetupScreen> placement;
+            if (!CaptureNow(out keys, out placement)) return null;
             var setup = new Setup();
             setup.Id = SetupMigration.NewId();
             var names = new List<string>();
             foreach (var k in keys) names.Add(ScreenName(FindScreen(k)));
-            setup.Name = UniqueName(string.Join(" + ", names.ToArray()));
+            setup.Name = UniqueName(keys.Count == 1 ? names[0] : string.Join(" + ", names.ToArray()));
             setup.Screens.AddRange(keys);
-            if (keys.Count > 1)
-            {
-                now.Name = setup.Name;
-                now.AudioId = null;
-                now.AudioName = null;
-                setup.Layout = now;
-            }
+            setup.Placement.AddRange(placement);
             setup.Hotkey = NextFreeHotkey();
-            setup.Confirmed = true; // it's on screen now
+            setup.Confirmed = true;
             settings.Setups.Add(setup);
             AssignPadDirections(settings.Setups, settings.SafeSetupId);
-            activeId = FindActiveSetup();
-            RoomLog.Write("New room \"" + setup.Name + "\" from the screens on now: " + now.Summary);
+            RoomLog.Write("New setup \"" + setup.Name + "\" from the screens on now: " + Describe(setup));
             OptionsEdited();
             return setup;
+        }
+
+        /// <summary>Makes the setup the screens on now, as they are. It's on screen, so it counts as kept.</summary>
+        public bool TakeCurrent(Setup setup)
+        {
+            List<string> keys;
+            List<SetupScreen> placement;
+            if (setup == null || !CaptureNow(out keys, out placement)) return false;
+            setup.Screens = keys;
+            setup.Placement = placement;
+            setup.Confirmed = true;
+            RoomLog.Write("\"" + setup.Name + "\" is now the screens on now: " + Describe(setup));
+            OptionsEdited();
+            return true;
+        }
+
+        /// <summary>"AORUS FO32U2 at 0,0 Native/Highest HDR auto, LG TV SSCR2 at 3840,0 …" for the log.</summary>
+        string Describe(Setup setup)
+        {
+            var parts = new List<string>();
+            foreach (var e in setup.Placement)
+                parts.Add(ScreenName(FindScreen(e.Key)) + (e.Placed ? " at " + e.X + "," + e.Y : "") + " " + RoomsView.Summary(e));
+            return string.Join("; ", parts.ToArray());
+        }
+
+        /// <summary>Saves where every screen of the setup is now, tidied, with the main one at 0,0.</summary>
+        void Place(Setup setup, IList<Box> boxes)
+        {
+            var tidy = Arrangement.Tidy(boxes);
+            foreach (var b in tidy)
+            {
+                var e = setup.Entry(b.Key);
+                if (e == null) continue;
+                e.X = b.X;
+                e.Y = b.Y;
+                e.PlacedWidth = b.W;
+                e.PlacedHeight = b.H;
+            }
+        }
+
+        /// <summary>Puts the screens where they now go (after a screen came, went or changed size) and saves.</summary>
+        void Rearrange(Setup setup, bool layoutChanged)
+        {
+            Place(setup, Boxes(setup, setup.Screens, NativeOf));
+            SetupEdited(setup, layoutChanged);
+        }
+
+        /// <summary>A screen dragged in the editor to (x, y), in desktop pixels: it snaps to the nearest edge that fits.</summary>
+        public void MoveScreen(Setup setup, string key, int x, int y)
+        {
+            var boxes = Boxes(setup, setup.Screens, NativeOf);
+            int index = boxes.FindIndex(b => string.Equals(b.Key, key, StringComparison.OrdinalIgnoreCase));
+            if (index < 0 || boxes.Count < 2) return;
+            var others = new List<Box>(boxes);
+            others.RemoveAt(index);
+            var moved = Arrangement.Snap(others, boxes[index], x, y);
+            if (moved.X == boxes[index].X && moved.Y == boxes[index].Y) return;
+            boxes[index] = moved;
+            Place(setup, boxes);
+            SetupEdited(setup, true);
+        }
+
+        /// <summary>Adds a screen to the setup, to the right of the others.</summary>
+        public void AddScreen(Setup setup, string key)
+        {
+            var screen = FindScreen(key);
+            if (setup == null || screen == null || setup.Entry(key) != null || setup.Screens.Count > ConfigManager.MaxAlsoOn) return;
+            setup.Screens.Add(screen.Key);
+            setup.Placement.Add(SetupMigration.EntryFor(screen));
+            Rearrange(setup, true);
+        }
+
+        /// <summary>Takes a screen out of the setup; the others close up. The last screen stays.</summary>
+        public void RemoveScreen(Setup setup, string key)
+        {
+            if (setup == null || setup.Screens.Count < 2) return;
+            setup.Screens.RemoveAll(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
+            setup.Placement.RemoveAll(e => string.Equals(e.Key, key, StringComparison.OrdinalIgnoreCase));
+            Rearrange(setup, true);
+        }
+
+        /// <summary>Makes a screen the main one (taskbar, new windows); nothing moves.</summary>
+        public void MakeMain(Setup setup, string key)
+        {
+            int i = setup.Screens.FindIndex(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
+            if (i <= 0) return;
+            setup.Screens.RemoveAt(i);
+            setup.Screens.Insert(0, key);
+            var e = setup.Entry(key);
+            setup.Placement.Remove(e);
+            setup.Placement.Insert(0, e);
+            Rearrange(setup, true);
+        }
+
+        /// <summary>A screen's resolution and refresh rate in the setup (0 = native / highest).</summary>
+        public void SetMode(Setup setup, string key, int width, int height, int hz)
+        {
+            var e = setup.Entry(key);
+            if (e == null || (e.Width == width && e.Height == height && e.RefreshHz == hz)) return;
+            e.Width = width;
+            e.Height = height;
+            e.RefreshHz = hz;
+            Rearrange(setup, true);
+        }
+
+        public void SetHdr(Setup setup, string key, string hdr)
+        {
+            var e = setup.Entry(key);
+            if (e == null || e.Hdr == hdr) return;
+            e.Hdr = hdr;
+            SetupEdited(setup, false);
         }
 
         /// <summary>"Desk", or "Desk 2" when that is taken; cut to the longest name allowed.</summary>
@@ -1205,7 +1429,7 @@ namespace Displicare.Rooms
             }
             if (pendingAudioSetup == setup) pendingAudioSetup = null;
             activeId = FindActiveSetup();
-            RoomLog.Write("Deleted room \"" + setup.Name + "\".");
+            RoomLog.Write("Deleted setup \"" + setup.Name + "\".");
             OptionsEdited();
         }
 
@@ -1665,7 +1889,7 @@ namespace Displicare.Rooms
             if (fresh.Count > 0)
             {
                 RoomLog.Write("Hotkeys taken by another app: " + string.Join(", ", fresh.ToArray()));
-                RaiseNotify("Some room hotkeys are taken", string.Join(", ", fresh.ToArray()), true);
+                RaiseNotify("Some setup hotkeys are taken", string.Join(", ", fresh.ToArray()), true);
             }
         }
 
@@ -1685,7 +1909,7 @@ namespace Displicare.Rooms
         {
             if (args.Length < 2 || args[0] != "room") return;
             var setup = FindSetup(string.Join(" ", args, 1, args.Length - 1));
-            if (setup == null) RaiseNotify("No room called \"" + string.Join(" ", args, 1, args.Length - 1) + "\"", "", true);
+            if (setup == null) RaiseNotify("No setup called \"" + string.Join(" ", args, 1, args.Length - 1) + "\"", "", true);
             else SwitchTo(setup, false);
         }
 

@@ -10,14 +10,19 @@ create and switch between, plus a panic shortcut that always gets you back.
 - **Known screen** (`KnownScreen`): a monitor Displicare has seen, keyed by model from its device path (`GSM82CD`) as
   rooms are today. Holds what belongs to the screen itself: EDID name, device and adapter paths, EDID ids, the modes
   Windows offered, and its own resolution, refresh rate and HDR (0 / "auto" = native, highest, automatic).
-- **Setup** (`Setup`): a name and the screens to turn on, the first being the main one, plus the arrangement saved for
-  them (positions, exact modes, HDR), sound, hotkey, controller direction, launcher, hidden, confirmed.
+- **Setup** (`Setup`): a name and the screens to turn on, the first being the main one; for each screen a placement
+  (`SetupScreen`: position, the size it was placed at, resolution, refresh rate, HDR, so a screen can run differently in
+  two setups); sound, hotkey, controller direction, launcher, hidden, confirmed. The known screen's own mode is only
+  what a new setup with it starts from.
 - **Safe setup** (`SafeSetupId`): where the panic shortcut goes; the desk unless the user picks another.
 
 ## Behaviour
 
-- **What you see is what you save.** Arrange the screens in Windows, then "Save current layout as a setup" and name it:
-  the exact layout is captured (the capture code from PR #1). Setups can also be built from screen chips and edited.
+- **Edited like DisplayFusion's monitor profiles.** The Setups window draws the setup's screens to scale: drag one
+  and it snaps to the nearest edge that fits (`Arrangement.Snap`), click one for its resolution, refresh rate, HDR,
+  "Make main" and "Leave out"; "+ name" adds a known screen. "+ New setup" and "Start from what's on now" take the
+  screens on now as they are. Every edit is saved at once and applies on the next switch ("Apply" for the setup
+  on screen); changing screens, places or modes makes the next switch ask to keep it.
 - Every connected screen still gets a one-screen setup by itself, so single-TV use needs no setup work.
 - Switching works as rooms do: cards, tray menu, hotkeys, View + D-pad, `--room <name>`. The "Keep this display
   layout?" prompt stays for new or edited setups; switching never asks anything else.
@@ -49,7 +54,9 @@ create and switch between, plus a panic shortcut that always gets you back.
 3. Switching engine on setups: settings load/save, discovery creates screens and one-screen setups, switching applies
    a setup (saved layout, else side by side from the screens' own modes), `--room`, tray, hotkeys, controller.
    PR #1's automatic desk pick-up and background layout learning go.
-4. UI: the Rooms tab becomes Setups (cards with screen badges, "Save current layout as a setup"), the editor (screen
-   chips, arrangement preview, main-screen labels), the note after switching.
+4. UI (done): the Rooms tab and window become Setups, cards with a drawing of their screens, the drag-and-snap
+   editor. Switching builds the layout from the placements (`RoomManager.BuildSetupProfile`), tidied by
+   `Arrangement.Tidy` so a missing screen or a new size leaves no gap or overlap. The note after switching names the
+   screens and any that weren't connected.
 5. Panic shortcut, its controller combo and the last-resort fallback.
 6. Hardware checks on DAMEPC at each step through test builds (`test-build` branch pre-releases), then 2.5.0.

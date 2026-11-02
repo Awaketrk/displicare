@@ -31,7 +31,7 @@
 - **Presets**: built-in profiles (Night Light, Paper Read, OLED Vivid, Gaming FPS and more), plus your own.
 - **Multi-monitor**: control every display together or each one separately; settings are remembered per monitor.
 - **Quick brightness**: scroll over the tray icon, or use optional hotkeys, without opening the window.
-- **Room switching** (optional): for a PC wired to a desk monitor and TVs in other rooms, make one screen the only display with its own resolution, refresh rate, HDR and sound.
+- **Display setups** (optional): for a PC wired to a desk monitor and TVs in other rooms, save which screens are on, where they go and their resolution, refresh rate, HDR and sound, and switch between them with a click, hotkey or controller.
 - **Lightweight**: no dependencies, ~0% CPU when idle, no global input hooks. Calibration is only rewritten when Windows or a game resets it.
 
 ## Install
@@ -68,24 +68,29 @@ The **Displays** tab shows each monitor's capabilities, switches it between hard
 
 Turn on DDC/CI in your monitor's on-screen menu to get hardware brightness.
 
-### Room switching
+### Display setups
 
-Turn it on in **Displays > General Settings**. Every connected screen becomes a room, with a card on the **Rooms** tab.
+Turn them on in **Displays > General Settings**. A setup is which screens are on, where they go, and their resolution, refresh rate, HDR and sound. Every connected screen starts with a setup of its own, with a card on the **Setups** tab.
 
-- **Switch here** makes that screen the only (primary) display, plus any screens the room also turns on. The first time, Displicare asks "Keep this display layout?" and switches back after 15 seconds without an answer, so a TV that can't show the picture never leaves you stuck.
-- **⚙ Room settings…** sets each room's resolution and refresh rate (**Native** and **Highest** unless you pick others), HDR, sound output, hotkey, and what opens there: **Steam Big Picture** or Windows 11's **Xbox mode**. Leaving such a room closes it again and minimizes every window, so nothing sits still on screen.
-- Rooms remember what you use there: change the resolution, HDR or sound output in Windows and the room keeps it.
-- **Several screens in one room:** turn on the screens you want together, arrange them in Windows Settings > Display, and click **Save the screens on now as a room** in **⚙ Room settings…**: that room brings back exactly those screens, their arrangement, resolution and HDR. You can also tick screens under **Also turn on** in any room and save its arrangement later with **Use the current arrangement**. Screens that aren't connected are left out. Displicare never changes a room's screens or arrangement by itself.
-- **Delete** a room you don't need in its settings; its screen stays known, so the room doesn't come back on its own.
-- **Hotkeys:** Ctrl+Alt+1, 2, 3… switch to each room; Ctrl+Alt+0 goes back to the home room without asking. `Displicare.exe --room "LG TV"` does the same from a shortcut.
-- **Controller:** hold **View + Menu** for a second to open a room picker (up/down chooses, **A** switches, **B** closes), or press **View + a D-pad direction** to go straight to a room, even while the TV is still blank: home is on Up, the others on Right, Left and Down. A and B also answer "Keep this display layout?". It works with Xbox controllers and anything Steam presents as one, and only reads the controller through XInput, as games do, so it's safe with anti-cheat.
+- **Switch here** turns on the setup's screens, the main one as the primary display, and turns the others off. The first time, Displicare asks "Keep this display layout?" and switches back after 15 seconds without an answer, so a TV that can't show the picture never leaves you stuck.
+- **⚙ Edit setups…** opens the editor, which works like DisplayFusion's monitor profiles:
+  - The setup's screens are drawn to scale. **Drag** one to move it; it snaps to the nearest edge, as in Windows Settings > Display.
+  - **Click** a screen to pick its resolution and refresh rate (**Native** and **Highest** unless you choose others) and HDR, make it the **main** screen, or **leave it out**. **+ a screen's name** adds one.
+  - **+ New setup** and **Start from what's on now** take the screens on now exactly as Windows has them.
+  - Each setup also has its sound output, hotkey, controller direction, and what opens there: **Steam Big Picture** or Windows 11's **Xbox mode**. Leaving such a setup closes it again and minimizes every window, so nothing sits still on screen.
+  - Changes are saved as you make them and apply the next time you switch (**Apply** for the setup on screen).
+- A screen that isn't connected is left out when you switch, and the others close up around it.
+- A one-screen setup remembers what you use there: change the resolution, HDR or sound output in Windows and it keeps it. Displicare never changes which screens a setup turns on or where they go.
+- **Delete** a setup you don't need in the editor; its screens stay known, so it doesn't come back on its own.
+- **Hotkeys:** Ctrl+Alt+1, 2, 3… switch to each setup; Ctrl+Alt+0 goes back to the **safe setup** without asking. `Displicare.exe --room "LG TV"` does the same from a shortcut.
+- **Controller:** hold **View + Menu** for a second to open a setup picker (up/down chooses, **A** switches, **B** closes), or press **View + a D-pad direction** to go straight to a setup, even while the TV is still blank: the safe setup is on Up, the others on Right, Left and Down. A and B also answer "Keep this display layout?". It works with Xbox controllers and anything Steam presents as one, and only reads the controller through XInput, as games do, so it's safe with anti-cheat.
 - **Streaming:** while Steam Link (or Apollo, Sunshine) streams to a virtual display, your physical screens are switched off so an OLED isn't left showing a still desktop. They come back as they were when the stream ends, with every window minimized.
-- After each switch, a short note on the new screen shows the room, resolution, refresh rate, HDR and sound.
+- After each switch, a short note on the new screen shows the setup, its screens, resolution, refresh rate, HDR and sound.
 
-The controller, turning screens off while streaming, and the note after a switch can each be turned off under **⚙ Room settings… > All rooms**.
+The controller, turning screens off while streaming, and the note after a switch can each be turned off under **⚙ Edit setups… > All setups**.
 
 > [!TIP]
-> While Xbox mode is open it keeps the controller to itself, so View + D-pad can't switch rooms from inside it. Leave it from its menu (Xbox button) first, or use a keyboard hotkey.
+> While Xbox mode is open it keeps the controller to itself, so View + D-pad can't switch setups from inside it. Leave it from its menu (Xbox button) first, or use a keyboard hotkey.
 
 ### Settings and command line
 
@@ -96,7 +101,7 @@ Settings and the log live in `%LOCALAPPDATA%\Displicare` (portable builds: next 
 | `--minimized`, `-m` | Start in the tray |
 | `--portable`, `-p` | Keep settings next to the exe |
 | `--hardware-test` | Open the hardware test and start it right away |
-| `--room "<name>"` | Switch to that room (room switching must be on) |
+| `--room "<name>"` | Switch to that setup (setups must be on) |
 
 ## Known limitations
 
@@ -126,7 +131,7 @@ C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSBuild.exe Tests\Displicare.Tes
 .\Tests\bin\Release\Displicare.Tests.exe
 ```
 
-They cover the brightness and gamma math, the sun-position calculations, settings validation and the room switching logic (display modes from real EDIDs, layouts, sound output matching).
+They cover the brightness and gamma math, the sun-position calculations, settings validation and the setup switching logic (display modes from real EDIDs, arranging screens, layouts, sound output matching).
 
 ### Releasing
 
@@ -155,7 +160,7 @@ Between releases the version in `Properties\AssemblyInfo.cs` ends in `-test` (e.
 | `ColorFilterDimmer.cs`, `HdrHelper.cs` | HDR detection and HDR dimming |
 | `TrayManager.cs`, `TrayWheel.cs` | Tray icon, menu and mouse wheel |
 | `HardwareTest.cs`, `HardwareTestWindow.cs` | In-app hardware test and its report |
-| `Rooms/` | Room switching: display layouts, EDID modes, sound outputs, controller, on-screen notes, the Rooms tab and window |
+| `Rooms/` | Display setups: the setup model, arranging screens, display layouts, EDID modes, sound outputs, controller, on-screen notes, the Setups tab and editor |
 | `Tests/` | Unit tests |
 | `build-release.ps1`, `installer.iss` | Release packaging |
 | `docs/ROADMAP.md` | Ideas for future versions |

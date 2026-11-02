@@ -107,6 +107,11 @@ namespace Displicare.Tests
             Assert.Equal("GBT3214,DELA1F2", string.Join(",", desk.Screens.ToArray()), "main screen first, then Also turn on");
             Assert.True(desk.Layout != null && desk.Layout.Displays.Count == 2, "the learned arrangement comes along");
             Assert.True(desk.Confirmed, "already kept once");
+
+            SetupMigration.Sanitize(screens, setups, safe);
+            Assert.True(desk.Layout == null, "and becomes places");
+            Assert.True(desk.Entry(Dell).Placed && desk.Entry(Dell).X == 2560, "the Dell where it was");
+            Assert.Equal(1, setups.Find(s => s.Id == "room:GSM82CD").Placement.Count, "a one-screen setup gets its place too");
         }
 
         [Test]
@@ -173,7 +178,9 @@ namespace Displicare.Tests
             Assert.Equal("0x0/auto", screens[1].Width + "x" + screens[1].Height + "/" + screens[1].Hdr, "bad mode and HDR reset");
             Assert.Equal(2, setups.Count, "a setup left without known screens goes");
             Assert.Equal("GBT3214,GSM82CD", string.Join(",", a.Screens.ToArray()), "unknown and repeated screens go, order kept");
-            Assert.True(a.Layout == null, "a layout for other screens is dropped");
+            Assert.True(a.Layout == null, "an old layout is dropped once read");
+            Assert.Equal("GBT3214,GSM82CD", a.Placement[0].Key + "," + a.Placement[1].Key, "a place per screen, in order");
+            Assert.True(a.Entry(Aorus).Placed && !a.Entry(Lg).Placed, "only the screens the old layout had are placed");
             Assert.Equal("Desk", a.Name, "name trimmed");
             Assert.True(b.Id != "same" && b.Id.StartsWith("setup:"), "a repeated id gets a new one");
             Assert.Equal("GSM82CD", b.Name, "an empty name falls back to the screen");
@@ -220,6 +227,8 @@ namespace Displicare.Tests
             List<Setup> setups;
             string safe;
             SetupMigration.FromRooms(Rooms245(), Aorus, out screens, out setups, out safe);
+            SetupMigration.Sanitize(screens, setups, safe);
+            setups.Find(s => s.Id == "room:GSM82CD").Entry(Lg).Hdr = Room.HdrOff;
 
             var ser = new DataContractJsonSerializer(typeof(List<Setup>));
             string json;
@@ -234,10 +243,12 @@ namespace Displicare.Tests
 
             var desk = back.Find(s => s.Id == "room:GBT3214");
             Assert.Equal(2, desk.Screens.Count, "screens read back");
-            Assert.True(desk.Layout != null && desk.Layout.Displays.Count == 2, "the layout is saved too");
-            Assert.Equal(2560, desk.Layout.Displays[1].X, "where the second screen goes");
+            Assert.Equal(2, desk.Placement.Count, "places read back");
+            Assert.Equal(2560, desk.Entry(Dell).X, "where the second screen goes");
             var tv = back.Find(s => s.Id == "room:GSM82CD");
             Assert.Equal(Room.LaunchBigPicture, tv.Launcher, "launcher read back");
+            Assert.Equal(Room.HdrOff, tv.Entry(Lg).Hdr, "a screen's HDR in the setup read back");
+            Assert.Equal(120, tv.Entry(Lg).RefreshHz, "and its refresh rate");
 
             // A setup written by hand with fields missing gets the defaults
             using (var ms = new MemoryStream(Encoding.UTF8.GetBytes("[{\"Id\":\"x\",\"Screens\":[\"GBT3214\"]}]")))
@@ -245,6 +256,7 @@ namespace Displicare.Tests
             Assert.Equal(Room.AudioAuto, back[0].Audio, "default sound");
             Assert.Equal(Room.LaunchNone, back[0].Launcher, "default launcher");
             Assert.Equal("", back[0].Hotkey, "no hotkey");
+            Assert.True(back[0].Placement != null && back[0].Placement.Count == 0, "no places yet (Sanitize adds them)");
         }
     }
 }

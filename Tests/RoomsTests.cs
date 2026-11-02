@@ -651,24 +651,6 @@ namespace Displicare.Tests
         }
 
         [Test]
-        public static void ScreensWithoutALearnedLayoutGoSideBySide()
-        {
-            var main = ScreenFor("GBT3214");
-            var dell = ScreenFor("DEL4321");
-            dell.Width = 2560; dell.Height = 1440;
-            var lg = ScreenFor("GSM82CD");
-            lg.Hdr = Room.HdrOff;
-            var p = RoomManager.BuildCombo("Desk", main, new DisplayMode(3840, 2160, 240), new List<KnownScreen> { dell, lg },
-                new List<DisplayMode?> { null, new DisplayMode(3840, 2160, 120) });
-            Assert.Equal(3, p.Displays.Count, "three screens");
-            Assert.True(p.Displays[0].Primary && p.Displays[0].X == 0, "this room's screen is the main one at 0,0");
-            Assert.True(!p.Displays[1].Primary && p.Displays[1].X == 3840, "next to its native width");
-            Assert.Equal(3840 + 2560, p.Displays[2].X, "after the Dell's set width");
-            Assert.Equal(0, p.Displays[2].Hdr, "each screen keeps its own room's HDR");
-            Assert.Equal(0, p.Paths.Count, "rebuilt by Windows, modes set afterwards");
-        }
-
-        [Test]
         public static void LayoutSignatureSeesArrangementNotOrder()
         {
             Func<int, Profile> make = x =>

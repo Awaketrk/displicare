@@ -47,6 +47,45 @@ namespace Displicare
     }
 
     /// <summary>
+    /// One screen in a setup: where it goes and how it runs there. The same screen can run differently in another setup.
+    /// </summary>
+    [DataContract]
+    public class SetupScreen
+    {
+        public SetupScreen()
+        {
+            Hdr = Room.HdrAuto;
+        }
+
+        [OnDeserializing]
+        private void OnDeserializing(StreamingContext context)
+        {
+            Hdr = Room.HdrAuto;
+        }
+
+        [DataMember] public string Key { get; set; }
+        /// <summary>0 = native.</summary>
+        [DataMember] public int Width { get; set; }
+        [DataMember] public int Height { get; set; }
+        /// <summary>0 = the highest at that resolution.</summary>
+        [DataMember] public int RefreshHz { get; set; }
+        [DataMember] public string Hdr { get; set; }
+        /// <summary>Top left corner on the desktop, in pixels; the main screen is at 0,0.</summary>
+        [DataMember] public int X { get; set; }
+        [DataMember] public int Y { get; set; }
+        /// <summary>The size the screen had when it was put there; 0 = not placed yet (it goes to the right).</summary>
+        [DataMember] public int PlacedWidth { get; set; }
+        [DataMember] public int PlacedHeight { get; set; }
+
+        public bool Placed { get { return PlacedWidth > 0 && PlacedHeight > 0; } }
+
+        public SetupScreen Clone()
+        {
+            return (SetupScreen)MemberwiseClone();
+        }
+    }
+
+    /// <summary>
     /// A profile you switch to: which screens turn on (the first is the main one), how they're arranged, and what
     /// goes with it (sound, hotkey, controller direction, launcher). Replaces rooms, which were always one screen.
     /// </summary>
@@ -67,6 +106,7 @@ namespace Displicare
         private void SetDefaults()
         {
             Screens = new List<string>();
+            Placement = new List<SetupScreen>();
             Audio = Room.AudioAuto;
             Hotkey = "";
             Launcher = Room.LaunchNone;
@@ -77,10 +117,9 @@ namespace Displicare
         [DataMember] public string Name { get; set; }
         /// <summary>Screen keys; the first is the main screen.</summary>
         [DataMember] public List<string> Screens { get; set; }
-        /// <summary>
-        /// The arrangement saved for these screens (positions, exact modes, HDR), or null: then the main screen is at
-        /// 0,0 and the others go to its right, each in its own mode.
-        /// </summary>
+        /// <summary>Where each screen goes and its resolution, refresh rate and HDR: one per screen, in the order of <see cref="Screens"/>.</summary>
+        [DataMember] public List<SetupScreen> Placement { get; set; }
+        /// <summary>The exact arrangement earlier 2.5.0 test builds saved; turned into <see cref="Placement"/> on load, then dropped.</summary>
         [DataMember] internal global::Displicare.Rooms.Profile Layout { get; set; }
         [DataMember] public string Audio { get; set; }
         [DataMember] public string AudioId { get; set; }
@@ -94,6 +133,14 @@ namespace Displicare
         [DataMember] public bool Confirmed { get; set; }
 
         public string MainScreen { get { return Screens != null && Screens.Count > 0 ? Screens[0] : null; } }
+
+        /// <summary>The placement of one of the setup's screens, or null.</summary>
+        public SetupScreen Entry(string key)
+        {
+            if (Placement == null) return null;
+            foreach (var e in Placement) if (e != null && string.Equals(e.Key, key, StringComparison.OrdinalIgnoreCase)) return e;
+            return null;
+        }
     }
 }
 
@@ -205,6 +252,14 @@ namespace Displicare.Rooms
                 r.KnownModes = screen.KnownModes != null ? new List<string>(screen.KnownModes) : new List<string>();
 
                 var s = SetupFor(setups, screen.Key);
+                var entry = s != null ? s.Entry(screen.Key) : null;
+                if (entry != null)
+                {
+                    r.Width = entry.Width;
+                    r.Height = entry.Height;
+                    r.RefreshHz = entry.RefreshHz;
+                    r.Hdr = entry.Hdr;
+                }
                 if (s != null)
                 {
                     r.Name = s.Name;
@@ -245,9 +300,78 @@ namespace Displicare.Rooms
             return main;
         }
 
+        /// <summary>A new placement for a screen, running as it last did on its own; not placed yet.</summary>
+        public static SetupScreen EntryFor(KnownScreen screen)
+        {
+            var e = new SetupScreen();
+            if (screen == null) return e;
+            e.Key = screen.Key;
+            e.Width = screen.Width;
+            e.Height = screen.Height;
+            e.RefreshHz = screen.RefreshHz;
+            e.Hdr = screen.Hdr;
+            return e;
+        }
+
+        /// <summary>
+        /// One valid placement per screen, in the order of <see cref="Setup.Screens"/>. A missing one runs as the screen
+        /// last did on its own; an arrangement saved by an earlier test build (<see cref="Setup.Layout"/>) gives its place.
+        /// </summary>
+        static void SanitizePlacement(Setup s, List<KnownScreen> screens)
+        {
+            var old = s.Placement ?? new List<SetupScreen>();
+            s.Placement = new List<SetupScreen>();
+            foreach (var key in s.Screens)
+            {
+                string k = key;
+                var e = old.Find(x => x != null && string.Equals(x.Key, k, StringComparison.OrdinalIgnoreCase));
+                if (e == null)
+                {
+                    e = EntryFor(screens.Find(sc => string.Equals(sc.Key, k, StringComparison.OrdinalIgnoreCase)));
+                    FromLayout(s.Layout, k, e);
+                }
+                e.Key = key;
+                if (e.Width < 0 || e.Width > 16384 || e.Height < 0 || e.Height > 16384 || (e.Width == 0) != (e.Height == 0))
+                {
+                    e.Width = 0;
+                    e.Height = 0;
+                }
+                if (e.RefreshHz < 0 || e.RefreshHz > 1000) e.RefreshHz = 0;
+                if (e.Hdr != Room.HdrAuto && e.Hdr != Room.HdrOn && e.Hdr != Room.HdrOff) e.Hdr = Room.HdrAuto;
+                if (e.X < -65536 || e.X > 65536 || e.Y < -65536 || e.Y > 65536 || e.PlacedWidth <= 0 || e.PlacedWidth > 16384
+                    || e.PlacedHeight <= 0 || e.PlacedHeight > 16384)
+                {
+                    e.X = 0;
+                    e.Y = 0;
+                    e.PlacedWidth = 0;
+                    e.PlacedHeight = 0;
+                }
+                s.Placement.Add(e);
+            }
+            s.Layout = null;
+        }
+
+        /// <summary>Where a screen was in a saved arrangement, and HDR off if it was off there.</summary>
+        static void FromLayout(Profile layout, string key, SetupScreen e)
+        {
+            if (layout == null || layout.Displays == null) return;
+            foreach (var d in layout.Displays)
+            {
+                if (d == null || d.Identity == null || !string.Equals(RoomManager.ModelKey(d.Identity.DevicePath), key, StringComparison.OrdinalIgnoreCase)) continue;
+                if (d.Width <= 0 || d.Height <= 0) return;
+                e.X = d.X;
+                e.Y = d.Y;
+                e.PlacedWidth = d.Width;
+                e.PlacedHeight = d.Height;
+                if (d.Hdr == 0) e.Hdr = Room.HdrOff;
+                return;
+            }
+        }
+
         /// <summary>
         /// Makes screens and setups read from settings.json safe to use: unique keys and ids, screens a setup names that
-        /// Displicare knows, valid choices, sizes in range. A setup left without screens is dropped. Returns the safe
+        /// Displicare knows, valid choices, sizes in range. A setup left without screens is dropped; every screen of a
+        /// setup gets a valid placement. Returns the safe
         /// setup's id: the one given if it still exists, else the first setup's (null without setups).
         /// </summary>
         public static string Sanitize(List<KnownScreen> screens, List<Setup> setups, string safeId)
@@ -286,7 +410,7 @@ namespace Displicare.Rooms
                 if (s.Screens == null) s.Screens = new List<string>();
                 s.Screens.RemoveAll(k => string.IsNullOrWhiteSpace(k) || !keys.Contains(k) || !seen.Add(k));
                 if (s.Screens.Count > ConfigManager.MaxAlsoOn + 1) s.Screens.RemoveRange(ConfigManager.MaxAlsoOn + 1, s.Screens.Count - ConfigManager.MaxAlsoOn - 1);
-                if (s.Layout != null && (!RoomManager.UsableLayout(s.Layout) || !RoomManager.ScreenKeys(s.Layout).SetEquals(s.Screens))) s.Layout = null;
+                SanitizePlacement(s, screens);
 
                 if (string.IsNullOrWhiteSpace(s.Name))
                 {

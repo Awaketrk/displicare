@@ -155,7 +155,7 @@ namespace Displicare
                     _roomsMenu.DropDownItems.Add(item);
                 }
                 _roomsMenu.DropDownItems.Add(new ToolStripSeparator());
-                _roomsMenu.DropDownItems.Add(new ToolStripMenuItem("⚙️ Room settings…", null, (s, e) =>
+                _roomsMenu.DropDownItems.Add(new ToolStripMenuItem("⚙️ Edit setups…", null, (s, e) =>
                 {
                     if (OnRoomsWindowRequested != null) OnRoomsWindowRequested();
                 }));
@@ -243,7 +243,7 @@ namespace Displicare
             menu.Items.Add(header);
 
             // Rooms submenu: only shown while room switching is on (UpdateRoomsMenu)
-            _roomsMenu = new ToolStripMenuItem("🛋️ Rooms");
+            _roomsMenu = new ToolStripMenuItem("🖥️ Setups");
             _roomsMenu.Visible = false;
             menu.Items.Add(_roomsMenu);
             _roomsSeparator = new ToolStripSeparator();
