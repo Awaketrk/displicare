@@ -33,7 +33,7 @@ create and switch between, plus a panic shortcut that always gets you back.
 
 ## Panic shortcut
 
-- Ctrl+Alt+0 (today's home hotkey) and holding View + Menu + B for 2 s on a controller apply the safe setup.
+- Ctrl+Alt+0 (today's home hotkey) and holding View + B for 4 s on a controller apply the safe setup.
 - It never asks, closes a launcher (Big Picture, Xbox mode), works blind and during a stream.
 - If the saved layout can't be applied (a screen unplugged, Windows refuses it): all connected screens on, extended,
   the safe setup's main screen as the main one.
@@ -58,5 +58,5 @@ create and switch between, plus a panic shortcut that always gets you back.
    editor. Switching builds the layout from the placements (`RoomManager.BuildSetupProfile`), tidied by
    `Arrangement.Tidy` so a missing screen or a new size leaves no gap or overlap. The note after switching names the
    screens and any that weren't connected.
-5. Panic shortcut, its controller combo and the last-resort fallback.
+5. Panic shortcut (done): `RoomManager.GoSafe` from Ctrl+Alt+0 and View + B held 4 s (`PadTracker.SafeHoldMs`, `PadButton.Safe`). During a switch it answers the prompt "no" and follows when that is done (`safeAfterSwitch`). It closes Xbox mode or Big Picture even when Displicare didn't open them, and falls back to every connected screen (`FallbackProfile`) when the main screen isn't connected or the layout fails.
 6. Hardware checks on DAMEPC at each step through test builds (`test-build` branch pre-releases), then 2.5.0.

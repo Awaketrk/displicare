@@ -5,12 +5,13 @@ using System.Windows.Threading;
 
 namespace Displicare.Rooms
 {
-    internal enum PadButton { Combo, RoomUp, RoomRight, RoomDown, RoomLeft, Up, Down, A, B }
+    /// <summary>Everything before <see cref="Up"/> counts at any time; Up and later only while the picker or prompt is open.</summary>
+    internal enum PadButton { Combo, RoomUp, RoomRight, RoomDown, RoomLeft, Safe, Up, Down, A, B }
 
     /// <summary>
-    /// Turns raw controller readings into presses: holding View + Menu together (<see cref="PadButton.Combo"/>), View +
-    /// a D-pad direction for the room on that direction, and the D-pad / left stick, A and B for moving through the
-    /// picker. Kept apart from the polling so it can be tested.
+    /// Turns raw controller readings into presses: holding View + Menu together (<see cref="PadButton.Combo"/>), holding
+    /// View + B (<see cref="PadButton.Safe"/>), View + a D-pad direction for the setup on that direction, and the
+    /// D-pad / left stick, A and B for moving through the picker. Kept apart from the polling so it can be tested.
     /// </summary>
     internal sealed class PadTracker
     {
@@ -18,12 +19,16 @@ namespace Displicare.Rooms
             Menu = 0x0010, View = 0x0020, ButtonA = 0x1000, ButtonB = 0x2000;
         /// <summary>Long enough that pressing both by accident in a game doesn't count.</summary>
         public const int HoldMs = 800;
+        /// <summary>The way back has to be deliberate: View + B for four seconds.</summary>
+        public const int SafeHoldMs = 4000;
         const short StickThreshold = 16000;
 
         ushort lastButtons;
         int lastStick; // -1 down, 0 centre, 1 up
         long comboSince = -1;
         bool comboFired;
+        long safeSince = -1;
+        bool safeFired;
 
         /// <summary>The press this reading completes, or null.</summary>
         public PadButton? Update(ushort buttons, short stickY, long nowMs)
@@ -33,6 +38,22 @@ namespace Displicare.Rooms
             int stick = stickY > StickThreshold ? 1 : stickY < -StickThreshold ? -1 : 0;
             bool stickMoved = stick != lastStick;
             lastStick = stick;
+
+            // View + B held: the way back. The first B still counts as B (it answers the prompt or closes the picker).
+            if ((buttons & (View | ButtonB)) == (View | ButtonB) && (buttons & Menu) == 0)
+            {
+                if (safeSince < 0) safeSince = nowMs;
+                if (!safeFired && nowMs - safeSince >= SafeHoldMs)
+                {
+                    safeFired = true;
+                    return PadButton.Safe;
+                }
+            }
+            else
+            {
+                safeSince = -1;
+                safeFired = false;
+            }
 
             if ((buttons & (View | Menu)) == (View | Menu))
             {

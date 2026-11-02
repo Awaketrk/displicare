@@ -82,7 +82,8 @@ Turn them on in **Displays > General Settings**. A setup is which screens are on
 - A screen that isn't connected is left out when you switch, and the others close up around it.
 - A one-screen setup remembers what you use there: change the resolution, HDR or sound output in Windows and it keeps it. Displicare never changes which screens a setup turns on or where they go.
 - **Delete** a setup you don't need in the editor; its screens stay known, so it doesn't come back on its own.
-- **Hotkeys:** Ctrl+Alt+1, 2, 3… switch to each setup; Ctrl+Alt+0 goes back to the **safe setup** without asking. `Displicare.exe --room "LG TV"` does the same from a shortcut.
+- **Hotkeys:** Ctrl+Alt+1, 2, 3… switch to each setup.
+- **The way back:** Ctrl+Alt+0, or holding **View + B** on a controller for four seconds, goes to the **safe setup** (your desk unless you pick another) without asking, from anywhere: in the middle of a switch, from Big Picture or Xbox mode (which it closes), even when you can't see a screen. If the safe setup can't be applied as saved (its main screen unplugged, Windows refuses the layout), every connected screen comes on instead. `Displicare.exe --room "LG TV"` does the same from a shortcut.
 - **Controller:** hold **View + Menu** for a second to open a setup picker (up/down chooses, **A** switches, **B** closes), or press **View + a D-pad direction** to go straight to a setup, even while the TV is still blank: the safe setup is on Up, the others on Right, Left and Down. A and B also answer "Keep this display layout?". It works with Xbox controllers and anything Steam presents as one, and only reads the controller through XInput, as games do, so it's safe with anti-cheat.
 - **Streaming:** while Steam Link (or Apollo, Sunshine) streams to a virtual display, your physical screens are switched off so an OLED isn't left showing a still desktop. They come back as they were when the stream ends, with every window minimized.
 - After each switch, a short note on the new screen shows the setup, its screens, resolution, refresh rate, HDR and sound.
@@ -90,7 +91,7 @@ Turn them on in **Displays > General Settings**. A setup is which screens are on
 The controller, turning screens off while streaming, and the note after a switch can each be turned off under **⚙ Edit setups… > All setups**.
 
 > [!TIP]
-> While Xbox mode is open it keeps the controller to itself, so View + D-pad can't switch setups from inside it. Leave it from its menu (Xbox button) first, or use a keyboard hotkey.
+> While Xbox mode is open, or Game Bar's gamepad cursor is on, Windows keeps the controller to itself, so View + D-pad and View + B can't switch setups. Leave Xbox mode from its menu (Xbox button) or turn the gamepad cursor off in Game Bar first, or use a keyboard hotkey such as Ctrl+Alt+0.
 
 ### Settings and command line
 

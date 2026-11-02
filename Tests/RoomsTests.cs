@@ -437,6 +437,33 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void WayBackNeedsViewAndBForFourSeconds()
+        {
+            var t = new PadTracker();
+            ushort viewB = PadTracker.View | PadTracker.ButtonB;
+            Assert.True(t.Update(viewB, 0, 0) == PadButton.B, "the first B is still B: it answers the prompt or closes the picker");
+            Assert.True(t.Update(viewB, 0, PadTracker.SafeHoldMs - 1) == null, "not before four seconds");
+            Assert.True(t.Update(viewB, 0, PadTracker.SafeHoldMs) == PadButton.Safe, "after four seconds");
+            Assert.True(t.Update(viewB, 0, PadTracker.SafeHoldMs * 2) == null, "once per hold");
+            Assert.True(t.Update(0, 0, PadTracker.SafeHoldMs * 2 + 50) == null, "release");
+
+            t = new PadTracker();
+            Assert.True(t.Update(viewB, 0, 0) == PadButton.B, "View + B");
+            Assert.True(t.Update(PadTracker.View, 0, 1000) == null, "B let go early");
+            Assert.True(t.Update(viewB, 0, 1500) == PadButton.B, "B again: the four seconds start over");
+            Assert.True(t.Update(viewB, 0, 1500 + PadTracker.SafeHoldMs - 1) == null, "not yet");
+            Assert.True(t.Update(viewB, 0, 1500 + PadTracker.SafeHoldMs) == PadButton.Safe, "now");
+
+            t = new PadTracker();
+            Assert.True(t.Update(PadTracker.ButtonB, 0, 0) == PadButton.B, "B alone");
+            Assert.True(t.Update(PadTracker.ButtonB, 0, PadTracker.SafeHoldMs * 2) == null, "B alone held is nothing");
+            ushort three = PadTracker.View | PadTracker.Menu | PadTracker.ButtonB;
+            t = new PadTracker();
+            Assert.True(t.Update(three, 0, 0) == null, "with Menu too it's the picker combo");
+            Assert.True(t.Update(three, 0, PadTracker.SafeHoldMs) == PadButton.Combo, "not the way back");
+        }
+
+        [Test]
         public static void ControllerMovesOncePerPress()
         {
             var t = new PadTracker();

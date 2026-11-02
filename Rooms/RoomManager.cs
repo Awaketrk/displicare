@@ -104,6 +104,8 @@ namespace Displicare.Rooms
         /// <summary>The setup whose screens are exactly the ones on, or null.</summary>
         string activeId;
         bool busy;
+        /// <summary>The safe hotkey or combo came during a switch: go to the safe setup when it's done.</summary>
+        bool safeAfterSwitch;
         DateTime lastSwitchUtc = DateTime.MinValue;
         Setup pendingAudioSetup;
         DateTime pendingAudioUntil;
@@ -871,6 +873,52 @@ namespace Displicare.Rooms
         /// home hotkey (<paramref name="safe"/>) or the setup was kept before (per the "ask" setting), and switches back
         /// when nobody answers.
         /// </summary>
+        /// <summary>
+        /// The way back, from the safe hotkey or View + B held: the safe setup, without asking. Works in the middle of a
+        /// switch too: its prompt is answered "no", and the safe setup follows when it has gone back.
+        /// </summary>
+        public void GoSafe()
+        {
+            if (hotkeys == null) return;
+            var safe = SafeSetup;
+            if (safe == null) return;
+            if (RoomOverlay.PickerOpen) ClosePicker();
+            if (busy)
+            {
+                safeAfterSwitch = true;
+                if (ConfirmForm.IsOpen) ConfirmForm.Answer(false);
+                return;
+            }
+            SwitchTo(safe, true);
+        }
+
+        /// <summary>
+        /// When the safe setup can't be applied as saved: every connected screen on, extended, its main screen (if
+        /// connected) as the main one, each in its mode there or its own. Null when no known screen is connected.
+        /// </summary>
+        Profile FallbackProfile(Setup safe)
+        {
+            var temp = new Setup();
+            temp.Id = "fallback";
+            temp.Name = safe.Name;
+            var screens = new List<KnownScreen>();
+            var keys = new List<string>();
+            if (safe.MainScreen != null) keys.Add(safe.MainScreen);
+            foreach (var sc in settings.KnownScreens) if (!keys.Contains(sc.Key)) keys.Add(sc.Key);
+            foreach (var key in keys)
+            {
+                var screen = FindScreen(key);
+                if (screen == null || !IsConnected(key)) continue;
+                var e = (safe.Entry(key) ?? SetupMigration.EntryFor(screen)).Clone();
+                e.PlacedWidth = 0; // side by side: nothing saved fits this set of screens
+                e.PlacedHeight = 0;
+                temp.Screens.Add(key);
+                temp.Placement.Add(e);
+                screens.Add(screen);
+            }
+            return screens.Count > 0 ? BuildSetupProfile(temp, screens, NativeOf) : null;
+        }
+
         public void SwitchTo(Setup setup, bool safe)
         {
             if (setup == null || busy) return;
@@ -889,6 +937,13 @@ namespace Displicare.Rooms
 
             var leaving = FindSetupById(activeId);
             var profile = SetupProfile(setup);
+            var fallback = safe ? FallbackProfile(setup) : null;
+            // The way back doesn't wait for a main screen that isn't there: every screen that is comes on instead.
+            if (profile == null || (fallback != null && !IsConnected(setup.MainScreen)))
+            {
+                if (fallback != null) RoomLog.Write("\"" + setup.Name + "\"'s main screen isn't connected; turning on every connected screen.");
+                profile = fallback;
+            }
             if (profile == null)
             {
                 RaiseNotify("Couldn't switch to " + setup.Name, "Its main screen isn't known any more.", true);
@@ -917,6 +972,16 @@ namespace Displicare.Rooms
                 try
                 {
                     result = LayoutEngine.Apply(profile, 10);
+                    if (!result.Success && fallback != null && fallback != profile)
+                    {
+                        RoomLog.Write("Couldn't apply \"" + setup.Name + "\" (" + result.Message + "); turning on every connected screen.");
+                        var all = LayoutEngine.Apply(fallback, 0);
+                        if (all.Success)
+                        {
+                            all.Warnings.Insert(0, "It couldn't be applied as saved (" + result.Message + "), so every connected screen is on.");
+                            result = all;
+                        }
+                    }
                     // Sound starts while the prompt is up, so you hear the TV before deciding.
                     if (result.Success) dispatcher.Invoke((Action)delegate { BeginSetupAudio(setup); });
                     if (result.Success && ask)
@@ -943,7 +1008,7 @@ namespace Displicare.Rooms
                 }
                 dispatcher.BeginInvoke((Action)delegate
                 {
-                    Finish(setup, leaving, result, asked);
+                    Finish(setup, leaving, result, asked, safe);
                     if (autoHide) AutoHideLater();
                 });
             });
@@ -953,7 +1018,7 @@ namespace Displicare.Rooms
             thread.Start();
         }
 
-        void Finish(Setup setup, Setup leaving, ApplyResult result, bool asked)
+        void Finish(Setup setup, Setup leaving, ApplyResult result, bool asked, bool safe)
         {
             busy = false;
             if (gamepad != null) gamepad.Navigating = false;
@@ -970,7 +1035,7 @@ namespace Displicare.Rooms
                     setup.Confirmed = true;
                     save();
                 }
-                StartLauncher(setup, leaving);
+                StartLauncher(setup, leaving, safe);
                 if (result.Warnings.Count > 0) RaiseNotify("Switched to " + setup.Name, string.Join("\n", result.Warnings.ToArray()), true);
                 if (settings.RoomShowOverlay) RoomOverlay.ShowNote(setup.Name, SwitchNote(setup), NoteMs);
             }
@@ -986,6 +1051,12 @@ namespace Displicare.Rooms
             }
             catch (Exception) { }
             RaiseChanged();
+            if (safeAfterSwitch)
+            {
+                // The way back was asked for during this switch.
+                safeAfterSwitch = false;
+                dispatcher.BeginInvoke((Action)GoSafe);
+            }
         }
 
         /// <summary>
@@ -1145,11 +1216,21 @@ namespace Displicare.Rooms
         /// Opens the setup's launcher (Steam Big Picture or Xbox mode) and closes the one the setup left behind used,
         /// unless both use the same. Xbox mode waits for Windows to confirm the change, so it runs off the UI thread.
         /// </summary>
-        void StartLauncher(Setup setup, Setup leaving)
+        /// <param name="safe">The way back: also closes Xbox mode or Big Picture when Displicare doesn't know they're open
+        /// (opened by hand, or from a setup that isn't on screen as saved).</param>
+        void StartLauncher(Setup setup, Setup leaving, bool safe)
         {
             string open = setup.Launcher ?? Room.LaunchNone;
             string close = leaving != null && leaving != setup ? leaving.Launcher ?? Room.LaunchNone : Room.LaunchNone;
             if (close == open) close = Room.LaunchNone;
+            if (safe && close == Room.LaunchNone && open == Room.LaunchNone)
+            {
+                bool xbox = false;
+                try { xbox = XboxMode.IsOn; }
+                catch (Exception) { }
+                if (xbox) close = Room.LaunchXbox;
+                else if (Process.GetProcessesByName("steam").Length > 0) OpenUrl("steam://close/bigpicture"); // nothing happens when it isn't open
+            }
 
             if (close == Room.LaunchBigPicture) OpenUrl("steam://close/bigpicture");
             // Only when nothing opens here: a new Big Picture or Xbox mode is meant to be on screen.
@@ -1438,6 +1519,12 @@ namespace Displicare.Rooms
         void OnPad(PadButton button)
         {
             if (gamepad == null) return;
+            if (button == PadButton.Safe)
+            {
+                RoomLog.Write("Controller: View + B, the safe setup.");
+                GoSafe();
+                return;
+            }
             if (ConfirmForm.IsOpen)
             {
                 if (button == PadButton.A) ConfirmForm.Answer(true);
@@ -1897,7 +1984,8 @@ namespace Displicare.Rooms
         {
             if (id == HomeHotkeyId)
             {
-                SwitchTo(SafeSetup, true); // the way back to a known screen: never asks
+                RoomLog.Write("Safe hotkey.");
+                GoSafe();
                 return;
             }
             int index = id - FirstRoomHotkeyId;
