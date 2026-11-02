@@ -1205,6 +1205,8 @@
                                 <CheckBox x:Name="ChkBrightnessHotkeys" Content="Brightness hotkeys" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,2" Checked="ChkBrightnessHotkeys_Checked" Unchecked="ChkBrightnessHotkeys_Checked"/>
                                 <TextBlock Text="Change brightness from anywhere, in steps of 10%. The mouse wheel over the tray icon always works, in steps of 5%."
                                            FontSize="10.5" Foreground="#B3A3AE" TextWrapping="Wrap" Margin="46,0,0,12" LineHeight="15"/>
+                                <CheckBox x:Name="ChkDeepDimming" Content="Deeper software dimming (Windows setting)" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,2" Checked="ChkDeepDimming_Checked" Unchecked="ChkDeepDimming_Checked"/>
+                                <TextBlock x:Name="TxtDeepDimming" FontSize="10.5" Foreground="#B3A3AE" TextWrapping="Wrap" Margin="46,0,0,12" LineHeight="15"/>
                                 <CheckBox x:Name="ChkRoomsEnabled" Content="Display setups" Style="{StaticResource ModernCheckBox}" Margin="0,0,0,2" Checked="ChkRoomsEnabled_Checked" Unchecked="ChkRoomsEnabled_Checked"/>
                                 <TextBlock Text="For a PC wired to TVs or monitors in other rooms: save which screens are on, where they go and their resolution, HDR and sound, and switch with a click, hotkey or controller. Adds a Setups tab."
                                            FontSize="10.5" Foreground="#B3A3AE" TextWrapping="Wrap" Margin="46,0,0,12" LineHeight="15"/>

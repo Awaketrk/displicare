@@ -194,6 +194,13 @@ namespace Displicare
         [DataMember]
         public bool BrightnessHotkeys { get; set; }
 
+        /// <summary>
+        /// What GdiIcmGammaRange was before Displicare lifted Windows' gamma limit ("absent" or the old number), so
+        /// turning it off puts that back. Null when Displicare didn't set it.
+        /// </summary>
+        [DataMember]
+        public string GammaRangeBackup { get; set; }
+
         /// <summary>Room switching (one display at a time for PCs wired to TVs in other rooms). Off by default.</summary>
         [DataMember]
         public bool RoomsEnabled { get; set; }

@@ -2,7 +2,7 @@ using System;
 
 namespace Displicare.Tests
 {
-    /// <summary>Gamma ramp, software brightness and HDR color filter math.</summary>
+    /// <summary>Gamma ramp and software brightness math, in SDR and HDR.</summary>
     public static class RampTests
     {
         private static int Identity(int i) { return (i * 65535) / 255; }
@@ -75,7 +75,8 @@ namespace Displicare.Tests
             for (int b = 0; b <= 100; b++)
             {
                 double s = MonitorEngine.SoftwareBrightnessScale(b);
-                Assert.True(s > prev, "scale must increase at " + b + "%");
+                Assert.True(s >= prev, "scale must not fall at " + b + "%");
+                if (b > 16) Assert.True(s > prev, "scale must rise above the SDR floor at " + b + "%");
                 Assert.True(s > 0.5 && s <= 1.0, "scale out of range at " + b + "%: " + s);
                 prev = s;
             }
@@ -83,22 +84,111 @@ namespace Displicare.Tests
         }
 
         [Test]
-        public static void HdrSoftwareModeDoesNotDimTheRamp()
+        public static void SdrAndHdrDimToTheSameLight()
         {
-            // In HDR the gamma ramp is undefined, so dimming happens in the color filter instead
-            var ramp = Build(Display(hardware: false, brightness: 15, hdr: true));
-            Assert.Equal((ushort)65535, ramp[255], "white in HDR software mode");
-            Assert.Near(Identity(128), ramp[128], 1, "mid-grey in HDR software mode");
+            // Regression (2.5.0): SDR's 30% floor made software dimming much brighter than the hardware slider
+            foreach (int b in new[] { 20, 50, 80 })
+                Assert.Near(MonitorEngine.SoftwareLuminance(b), Math.Pow(MonitorEngine.SoftwareBrightnessScale(b), 2.2), 1e-9, "light at " + b + "%");
+            Assert.Near(0.22, Math.Pow(MonitorEngine.SoftwareBrightnessScale(0), 2.2), 1e-9, "SDR stops at the driver's 22%");
+            Assert.Near(0.08, MonitorEngine.SoftwareLuminance(0), 1e-9, "HDR goes down to 8%");
         }
 
         [Test]
-        public static void HdrRampLeavesWarmthAndGainsToTheFilter()
+        public static void LiftedGammaLimitLetsSdrDimTo8Percent()
         {
+            try
+            {
+                MonitorEngine.RampFullRange = true;
+                Assert.Near(0.08, Math.Pow(MonitorEngine.SoftwareBrightnessScale(0), 2.2), 1e-9, "SDR reaches 8% light");
+                var ramp = Build(Display(hardware: false, brightness: 0));
+                Assert.True(ramp[255] < 65535 - 32760, "white goes past Windows' default limit");
+                var warm = Display(hardware: true, brightness: 50);
+                warm.ColorTemperature = 1500;
+                Assert.True(Build(warm)[767] < 65535 - 32760, "very warm blue isn't cut short");
+            }
+            finally { MonitorEngine.RampFullRange = false; }
+            Assert.True(Build(Display(hardware: false, brightness: 0))[255] >= 65535 - 32760, "back within the limit");
+        }
+
+        [Test]
+        public static void GammaRangeBackupPutsBackWhatWasThere()
+        {
+            Assert.Equal(GammaRange.BackupAbsent, GammaRange.BackupOf(null), "no value before");
+            Assert.Equal("1", GammaRange.BackupOf(1), "an old number");
+            Assert.True(GammaRange.RestoreArguments(GammaRange.BackupAbsent).StartsWith("delete "), "absent: delete the value");
+            Assert.True(GammaRange.RestoreArguments("1").EndsWith("/d 1 /f"), "old number written back");
+            Assert.True(GammaRange.RestoreArguments(null) == null, "not ours (f.lux): left alone");
+            Assert.True(GammaRange.RestoreArguments("junk") == null, "unreadable backup: left alone");
+            Assert.True(GammaRange.RestoreArguments("99999") == null, "tampered backup: nothing out of range written elevated");
+            Assert.True(GammaRange.RestoreArguments("-1") == null, "negative backup rejected");
+            Assert.True(GammaRange.RestoreArguments("256") != null, "256 itself is a valid old value");
+            Assert.True(GammaRange.SetArguments(256).Contains("GdiIcmGammaRange /t REG_DWORD /d 256"), "sets 256");
+            Assert.True(GammaRange.IsUnlimited(256) && !GammaRange.IsUnlimited(255) && !GammaRange.IsUnlimited(null), "256 or more lifts it");
+        }
+
+        [Test]
+        public static void AutoColorManagementIsNotHdr()
+        {
+            // Regression (2.5.0): the AORUS in SDR with Auto Color Management reports advanced color on (0x7) and got
+            // the HDR curve, which barely dimmed white and crushed blacks
+            Assert.True(!HdrHelper.IsHdrMode(0xD7, 1), "24H2: wide color SDR (ACM) is not HDR");
+            Assert.True(HdrHelper.IsHdrMode(0xF3, 2), "24H2: HDR mode is HDR");
+            Assert.True(!HdrHelper.IsHdrMode(0x13, 0), "24H2: plain SDR");
+            Assert.True(!HdrHelper.IsHdrMode(0x7, -1), "older builds: enabled but wide color enforced (ACM)");
+            Assert.True(HdrHelper.IsHdrMode(0x3, -1), "older builds: enabled, not enforced");
+            Assert.True(!HdrHelper.IsHdrMode(0x1, -1), "older builds: supported but off");
+        }
+
+        [Test]
+        public static void PqCurveRoundTripsAndMatchesTheStandard()
+        {
+            Assert.Near(0.7518, MonitorEngine.LightToPq(0.1), 1e-3, "1000 nits");
+            Assert.Near(0.5081, MonitorEngine.LightToPq(0.01), 1e-3, "100 nits");
+            Assert.Near(1.0, MonitorEngine.LightToPq(1.0), 1e-9, "10000 nits");
+            for (int i = 0; i <= 20; i++)
+            {
+                double s = i / 20.0;
+                Assert.Near(s, MonitorEngine.LightToPq(MonitorEngine.PqToLight(s)), 1e-9, "round trip at " + s);
+            }
+        }
+
+        [Test]
+        public static void HdrNeutralRampIsIdentity()
+        {
+            var ramp = Build(Display(hardware: false, brightness: 100, hdr: true));
+            for (int i = 0; i < 768; i++) Assert.Near(Identity(i % 256), ramp[i], 1, "ramp[" + i + "]");
+        }
+
+        [Test]
+        public static void HdrSoftwareDimmingScalesLightNotSignal()
+        {
+            // Scaling a PQ signal flattens contrast (washed out); the ramp must scale the light behind it instead
+            foreach (int b in new[] { 0, 15, 50 })
+            {
+                var ramp = Build(Display(hardware: false, brightness: b, hdr: true));
+                double want = MonitorEngine.SoftwareLuminance(b);
+                for (int i = 64; i < 256; i += 16)
+                {
+                    double ratio = MonitorEngine.PqToLight(ramp[i] / 65535.0) / MonitorEngine.PqToLight(i / 255.0);
+                    Assert.Near(want, ratio, want * 0.02, "light ratio at " + b + "%, step " + i);
+                }
+                Assert.True(ramp[255] < 65535 && ramp[255] > 65535 / 2, "white dimmed within the driver's limit at " + b + "%");
+            }
+        }
+
+        [Test]
+        public static void HdrWarmthIsAGainInLight()
+        {
+            // The SDR ramp scales the 2.2-encoded signal by KelvinToRgb, which is value^2.2 in light; HDR matches that
             var d = Display(hardware: true, brightness: 50, hdr: true);
-            d.ColorTemperature = 3400; d.BlueGain = 0.5;
+            d.ColorTemperature = 3400;
+            double kr, kg, kb;
+            MonitorEngine.KelvinToRgb(3400, out kr, out kg, out kb);
             var ramp = Build(d);
-            Assert.Equal((ushort)65535, ramp[767], "blue white stays full on the HDR ramp");
-            Assert.Near(Identity(128), ramp[512 + 128], 1, "blue mid stays identity on the HDR ramp");
+            double inLight = MonitorEngine.PqToLight(200 / 255.0);
+            Assert.Near(1.0, MonitorEngine.PqToLight(ramp[200] / 65535.0) / inLight, 0.02, "red stays full when warm");
+            Assert.Near(Math.Pow(kb, 2.2), MonitorEngine.PqToLight(ramp[512 + 200] / 65535.0) / inLight, 0.02, "blue scaled in light");
+            Assert.True(ramp[512 + 200] < ramp[256 + 200] && ramp[256 + 200] < ramp[200], "warm: b < g < r");
         }
 
         [Test]
@@ -111,62 +201,6 @@ namespace Displicare.Tests
         }
 
         [Test]
-        public static void HdrFilterIsNeutralForDefaultHardwareDisplay()
-        {
-            float r, g, b;
-            MonitorEngine.ComputeHdrFilter(Display(hardware: true, brightness: 15, hdr: true), out r, out g, out b);
-            Assert.Near(1.0, r, 1e-6, "r"); Assert.Near(1.0, g, 1e-6, "g"); Assert.Near(1.0, b, 1e-6, "b");
-        }
-
-        [Test]
-        public static void HdrFilterDimsEvenlyInSoftwareMode()
-        {
-            float r, g, b;
-            MonitorEngine.ComputeHdrFilter(Display(hardware: false, brightness: 15, hdr: true), out r, out g, out b);
-            Assert.Near(0.218, r, 1e-5, "r"); Assert.Near(0.218, g, 1e-5, "g"); Assert.Near(0.218, b, 1e-5, "b");
-        }
-
-        [Test]
-        public static void HdrFilterWarmthMatchesSdrWhitePoint()
-        {
-            // The SDR ramp scales the encoded signal by KelvinToRgb; in linear light that's value^2.2
-            var d = Display(hardware: true, brightness: 50, hdr: true);
-            d.ColorTemperature = 3400;
-            double kr, kg, kb;
-            MonitorEngine.KelvinToRgb(3400, out kr, out kg, out kb);
-            float r, g, b;
-            MonitorEngine.ComputeHdrFilter(d, out r, out g, out b);
-            Assert.Near(1.0, r, 1e-6, "red stays full when warm");
-            Assert.Near(Math.Pow(kg, 2.2), g, 1e-5, "green in linear light");
-            Assert.Near(Math.Pow(kb, 2.2), b, 1e-5, "blue in linear light");
-            Assert.True(b < g && g < r, "warm: b < g < r");
-        }
-
-        [Test]
-        public static void HdrFilterCombinesWarmthGainsAndDimming()
-        {
-            var d = Display(hardware: false, brightness: 15, hdr: true);
-            d.ColorTemperature = 4500; d.RedGain = 2.0; d.GreenGain = 0.9;
-            double kr, kg, kb;
-            MonitorEngine.KelvinToRgb(4500, out kr, out kg, out kb);
-            float r, g, b;
-            MonitorEngine.ComputeHdrFilter(d, out r, out g, out b);
-            Assert.Near(0.218, r, 1e-5, "red gain above 1 is capped at full, then dimmed");
-            Assert.Near(Math.Pow(kg * 0.9, 2.2) * 0.218, g, 1e-5, "green: warmth × gain, linear, dimmed");
-            Assert.Near(Math.Pow(kb, 2.2) * 0.218, b, 1e-5, "blue: warmth, linear, dimmed");
-        }
-
-        [Test]
-        public static void HdrFilterScaleMatchesTunedCurve()
-        {
-            Assert.Near(0.08, MonitorEngine.HdrFilterScale(0), 1e-6, "0%");
-            Assert.Near(0.218, MonitorEngine.HdrFilterScale(15), 1e-6, "15% (night floor)");
-            Assert.Near(1.0, MonitorEngine.HdrFilterScale(100), 1e-6, "100%");
-            Assert.True(MonitorEngine.HdrFilterScale(-20) >= 0.08 - 1e-6, "below 0% clamps");
-            Assert.True(MonitorEngine.HdrFilterScale(150) <= 1.0 + 1e-6, "above 100% clamps");
-        }
-
-        [Test]
         public static void RampsStayValidForExtremeSettings()
         {
             // Windows rejects ramps that aren't monotonic or stray more than 32760 from identity
@@ -175,12 +209,13 @@ namespace Displicare.Tests
             foreach (double gamma in new[] { 0.5, 1.0, 2.5 })
             foreach (int brightness in new[] { 0, 50, 100 })
             foreach (bool hardware in new[] { true, false })
+            foreach (bool hdr in new[] { false, true })
             {
-                var d = Display(hardware, brightness);
+                var d = Display(hardware, brightness, hdr);
                 d.ColorTemperature = kelvin; d.Contrast = contrast; d.Gamma = gamma;
                 d.RedGain = 2.0; d.BlueGain = 0.1;
                 var ramp = Build(d);
-                string ctx = string.Format("{0}K c{1} g{2} b{3} hw{4}", kelvin, contrast, gamma, brightness, hardware);
+                string ctx = string.Format("{0}K c{1} g{2} b{3} hw{4} hdr{5}", kelvin, contrast, gamma, brightness, hardware, hdr);
                 for (int ch = 0; ch < 3; ch++)
                 for (int i = 0; i < 256; i++)
                 {

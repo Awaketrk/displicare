@@ -222,18 +222,22 @@ namespace Displicare
         }
 
         /// <summary>
-        /// A display set to hardware brightness answered DDC/CI late (common right after sign-in): hand dimming from
-        /// the software dimmer to its backlight, as if hardware mode had just been turned on.
+        /// A display answered DDC/CI late (common right after sign-in or an HDR switch). Set to hardware brightness, it
+        /// hands dimming from the software dimmer to its backlight; set to software, its card gets the DDC/CI option back.
         /// </summary>
         private void OnDdcRecovered(DisplayInfo d)
         {
             if (_hardwareTestRunning || !_engine.Displays.Contains(d)) return;
             RestoreHardwarePreference(new[] { d });
-            if (!d.UseHardwareBrightness) return;
+            if (!d.UseHardwareBrightness)
+            {
+                BuildDisplayHardwareCards(); // the DDC/CI option comes back; dimming stays in software as chosen
+                return;
+            }
             try
             {
                 _engine.QueueHardwareBrightness(d, d.UserBrightness);
-                _engine.ApplyColorAndGamma(d); // rebuilt without software dimming; also updates the HDR color filter
+                _engine.ApplyColorAndGamma(d); // rebuilt without software dimming
                 PopulateDisplays();
                 BuildMonitorRows();
                 BuildDisplayHardwareCards();
@@ -279,17 +283,56 @@ namespace Displicare
                 PopulateDisplays();
                 RoomsDisplaysChanged();
 
-                foreach (var d in _engine.Displays)
-                {
-                    if (!d.SupportsDdcCi || !d.UseHardwareBrightness)
-                    {
-                        _engine.ApplyColorAndGamma(d);
-                    }
-                }
-
+                RebuildRamps();
                 ReassertDisplayState();
+                StartHdrRecheck();
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Writes every ramp from the current settings. The ramp depends on HDR (PQ in HDR, 2.2 in SDR), so the watchdog's
+        /// "rewrite the last ramp" isn't enough after a display change.
+        /// </summary>
+        private void RebuildRamps()
+        {
+            foreach (var d in _engine.Displays)
+            {
+                if (!d.SupportsDdcCi || !d.UseHardwareBrightness || _engine.HasCustomGammaOrColor(d))
+                {
+                    _engine.ApplyColorAndGamma(d);
+                }
+            }
+        }
+
+        private System.Windows.Threading.DispatcherTimer _hdrRecheckTimer;
+        private int _hdrRechecks;
+
+        /// <summary>
+        /// Windows reports the display change while HDR is still switching, so the refresh may have read the old state:
+        /// look again after 1 and 4 seconds and rebuild the ramps and cards if it changed.
+        /// </summary>
+        private void StartHdrRecheck()
+        {
+            if (_hdrRecheckTimer == null)
+            {
+                _hdrRecheckTimer = new System.Windows.Threading.DispatcherTimer();
+                _hdrRecheckTimer.Tick += (s, ev) =>
+                {
+                    _hdrRechecks++;
+                    if (_hdrRechecks >= 2) _hdrRecheckTimer.Stop();
+                    else _hdrRecheckTimer.Interval = TimeSpan.FromSeconds(3);
+                    if (_hardwareTestRunning || !_engine.RecheckHdr()) return;
+                    RebuildRamps();
+                    PopulateDisplays();
+                    BuildMonitorRows();
+                    BuildDisplayHardwareCards();
+                };
+            }
+            _hdrRechecks = 0;
+            _hdrRecheckTimer.Interval = TimeSpan.FromSeconds(1);
+            _hdrRecheckTimer.Stop();
+            _hdrRecheckTimer.Start();
         }
 
         private void ReassertDisplayState()

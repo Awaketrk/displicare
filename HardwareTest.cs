@@ -19,17 +19,15 @@ namespace Displicare
 
     /// <summary>
     /// In-app hardware test: applies a few settings to each display through the normal engine paths and reads back
-    /// what Windows and the monitor actually hold (GPU gamma ramp, HDR color filter, DDC/CI backlight), then writes a
-    /// report the user can send. The expected values come from the same math (BuildRamp, ComputeHdrFilter), so a
+    /// what Windows and the monitor actually hold (GPU gamma ramp, DDC/CI backlight), then writes a
+    /// report the user can send. The expected values come from the same math (BuildRamp), so a
     /// failure means this GPU, driver or monitor didn't accept or keep what we wrote.
     /// Everything is put back afterwards, also when cancelled. If the app dies mid-test, the ramp has its own record
-    /// (gamma-*.dat), Windows drops the filter, and the backlight is restored on the next start from a recovery file.
-    /// Must run on the UI thread: the color filter is per-thread.
+    /// (gamma-*.dat), and the backlight is restored on the next start from a recovery file.
     /// </summary>
     internal sealed class HardwareTest
     {
         internal const int RampTolerance = 256;          // drivers with 10/12-bit LUTs quantize on read-back
-        internal const float FilterTolerance = 0.001f;
         internal const int BacklightTolerance = 1;
         private const int SettleMs = 400;
         private const int BacklightTimeoutMs = 3000;
@@ -210,7 +208,6 @@ namespace Displicare
 
             await Task.Delay(SettleMs, ct);
             CheckRamp(d, c.Name);
-            CheckFilter(c.Name);
             if (c.Hardware)
             {
                 await CheckBacklight(d, (uint)c.Brightness, c.Name);
@@ -234,20 +231,6 @@ namespace Displicare
             }
             Record(RampPasses(diff), string.Format("{0}: ramp max difference {1} (white R/G/B {2}/{3}/{4}, expected {5}/{6}/{7})",
                 name, diff, live[255], live[511], live[767], expected[255], expected[511], expected[767]));
-        }
-
-        private void CheckFilter(string name)
-        {
-            float er, eg, eb, lr, lg, lb;
-            _engine.ExpectedColorFilter(out er, out eg, out eb);
-            if (!_engine.ReadColorFilter(out lr, out lg, out lb))
-            {
-                Record(false, name + ": color filter could not be read back");
-                return;
-            }
-            bool pass = Math.Abs(er - lr) <= FilterTolerance && Math.Abs(eg - lg) <= FilterTolerance && Math.Abs(eb - lb) <= FilterTolerance;
-            Record(pass, string.Format("{0}: filter {1:F3}/{2:F3}/{3:F3} (expected {4:F3}/{5:F3}/{6:F3})",
-                name, lr, lg, lb, er, eg, eb));
         }
 
         /// <summary>Monitors take a moment to apply a DDC/CI write, so read back until it matches or times out.</summary>
@@ -335,7 +318,6 @@ namespace Displicare
                     await CheckBacklight(s.Display, s.Backlight, s.Display.DeviceName + " original");
                 }
             }
-            CheckFilter("Color filter");
         }
 
         private void WriteHeader(List<DisplayInfo> displays)

@@ -39,18 +39,6 @@ namespace Displicare.Tests
         }
 
         [Test]
-        public static void FilterFollowsTheSoftwareHdrDisplay()
-        {
-            var sdr = new DisplayInfo { DeviceName = "A", UseHardwareBrightness = false };
-            var hdrHardware = new DisplayInfo { DeviceName = "B", IsHdr = true, SupportsDdcCi = true, UseHardwareBrightness = true };
-            var hdrSoftware = new DisplayInfo { DeviceName = "C", IsHdr = true, UseHardwareBrightness = false };
-
-            Assert.True(MonitorEngine.FilterSource(new List<DisplayInfo> { sdr, hdrHardware, hdrSoftware }) == hdrSoftware, "software HDR display wins");
-            Assert.True(MonitorEngine.FilterSource(new List<DisplayInfo> { sdr, hdrHardware }) == hdrHardware, "else the first HDR display");
-            Assert.True(MonitorEngine.FilterSource(new List<DisplayInfo> { sdr }) == null, "no HDR display: no filter");
-        }
-
-        [Test]
         public static void RecoveryFileParsingSkipsBadLines()
         {
             var saved = HardwareTest.ParseRecovery(new[]

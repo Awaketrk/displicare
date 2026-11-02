@@ -88,6 +88,14 @@ namespace Displicare
                 ev.Handled = true;
             };
 
+            // The uninstaller runs this before removing the files: put back what Deeper software dimming changed
+            if (e.Args != null && Array.Exists(e.Args, a => a.Equals(RestoreGammaRangeArg, StringComparison.OrdinalIgnoreCase)))
+            {
+                RestoreGammaRange();
+                Shutdown();
+                return;
+            }
+
             const string mutexName = @"Local\Displicare_SingleInstance_Mutex";
             bool isNewInstance = false;
             _singleInstanceMutex = new Mutex(true, mutexName, out isNewInstance);
@@ -168,6 +176,28 @@ namespace Displicare
 
             base.OnStartup(e);
             Log("OnStartup finished");
+        }
+
+        internal const string RestoreGammaRangeArg = "--restore-gamma-range";
+
+        /// <summary>
+        /// Puts GdiIcmGammaRange back to what it was before Deeper software dimming (Windows asks for admin), only if
+        /// Displicare changed it. Runs without the window or the single-instance check; nothing to do is not an error.
+        /// </summary>
+        private static void RestoreGammaRange()
+        {
+            var settings = ConfigManager.Load();
+            string arguments = GammaRange.RestoreArguments(settings.GammaRangeBackup);
+            if (arguments == null)
+            {
+                Log("Gamma range: nothing to put back");
+                return;
+            }
+            var result = GammaRange.RunElevated(arguments);
+            Log("Gamma range on uninstall: " + result);
+            if (result != GammaRange.Result.Done) return;
+            settings.GammaRangeBackup = null;
+            ConfigManager.Save(settings);
         }
 
         /// <summary>The value after --room (several words are joined, so the quotes are optional), or null.</summary>

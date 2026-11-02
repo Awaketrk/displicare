@@ -56,7 +56,7 @@ namespace Displicare
         // Last ramp written by ApplyColorAndGamma; the watchdog compares against it instead of recomputing & rewriting
         public ushort[] LastAppliedRamp { get; set; }
 
-        // Windows HDR state. In HDR, software brightness uses the color filter dimmer instead of the gamma ramp.
+        // Windows HDR state, for the cards and the hardware test report. Everything still goes through the gamma ramp.
         public bool IsHdr { get; set; }
 
         public bool UsesSoftwareBrightness { get { return !SupportsDdcCi || !UseHardwareBrightness; } }
@@ -385,7 +385,7 @@ namespace Displicare
                                     if (!foundBrightness) disp.SupportsDdcCi = false;
                                     App.Log("DDC/CI " + disp.FriendlyName + ": " + (foundBrightness
                                         ? "backlight " + disp.CurrentBrightness + "% (range " + disp.MinBrightness + "-" + disp.MaxBrightness + ")"
-                                        : "no answer" + (disp.UseHardwareBrightness ? ", will retry" : "")));
+                                        : "no answer, will retry"));
                                 }
                                 finally
                                 {
@@ -417,11 +417,28 @@ namespace Displicare
                 generation = ++_refreshGeneration;
             }
 
-            // The filter covers every screen, a stream's too: with no HDR display left (say only a stream is on), clear it.
-            if (FilterSource(newDisplays) == null) UpdateColorFilter();
-
-            var waiting = newDisplays.FindAll(x => !x.SupportsDdcCi && x.UseHardwareBrightness && x.HMonitor != IntPtr.Zero);
+            // Also displays set to software: a monitor busy switching modes (HDR on/off) misses a read, and without
+            // asking again its card would lose the DDC/CI option as if the monitor couldn't do it
+            var waiting = newDisplays.FindAll(x => !x.SupportsDdcCi && x.HMonitor != IntPtr.Zero);
             if (waiting.Count > 0) ThreadPool.QueueUserWorkItem(_ => RetryDdc(waiting, generation));
+        }
+
+        /// <summary>
+        /// Reads each display's HDR state again. Windows reports a display change while HDR is still being switched,
+        /// so the refresh can read the old state. True if any display changed; its ramp must then be rebuilt.
+        /// </summary>
+        public bool RecheckHdr()
+        {
+            bool changed = false;
+            foreach (var d in Displays)
+            {
+                bool hdr = HdrHelper.IsHdrEnabled(d.DeviceName);
+                if (hdr == d.IsHdr) continue;
+                d.IsHdr = hdr;
+                changed = true;
+                App.Log("HDR " + (hdr ? "on" : "off") + ": " + d.FriendlyName);
+            }
+            return changed;
         }
 
         /// <summary>The monitor model from its device id: MONITOR\TCL9653\{4d36e96e-...}\0013 gives TCL9653.</summary>
@@ -442,7 +459,7 @@ namespace Displicare
             return deviceId != null && deviceId.StartsWith(@"ROOT\", StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>Seconds after a refresh to ask again a display set to hardware brightness that didn't answer.</summary>
+        /// <summary>Seconds after a refresh to ask again a display that didn't answer.</summary>
         private static readonly int[] DdcRetrySeconds = { 1, 3, 10, 30 };
 
         /// <summary>
@@ -474,7 +491,8 @@ namespace Displicare
                 }
                 if (waiting.Count == 0) return;
             }
-            foreach (var disp in waiting) App.Log("DDC/CI " + disp.FriendlyName + ": still no answer, using software brightness");
+            foreach (var disp in waiting)
+                App.Log("DDC/CI " + disp.FriendlyName + ": still no answer" + (disp.UseHardwareBrightness ? ", using software brightness" : ""));
         }
 
         private bool TryReadDdc(IntPtr hMonitor, out uint min, out uint cur, out uint max)
@@ -719,10 +737,9 @@ namespace Displicare
         public void ResetGammaRamp(DisplayInfo disp)
         {
             if (disp == null) return;
-            UpdateColorFilter();
 
             // If software brightness is active and below 100%, reapply software brightness instead of blowing out to 100% white
-            if (disp.UsesSoftwareBrightness && !disp.IsHdr && disp.UserBrightness != 100)
+            if (disp.UsesSoftwareBrightness && disp.UserBrightness != 100)
             {
                 ApplyColorAndGamma(disp);
                 return;
@@ -770,22 +787,70 @@ namespace Displicare
             ApplyColorAndGamma(disp);
         }
 
-        // Software brightness at 0% still emits this fraction of full luminance, roughly where a monitor's
-        // backlight bottoms out, so the software slider feels like the hardware one instead of going near-black
-        private const double SoftwareMinLuminance = 0.30;
         private const double DisplayGamma = 2.2;
 
+        // Software brightness at 0% still lets this fraction of light through, in SDR and HDR alike. 0.08 was tuned by
+        // eye on an AORUS FO32U2 so Solar Sync's night level matches its hardware DDC/CI level.
+        private const double SoftwareMinLuminance = 0.08;
+
+        // SDR can't go that low: drivers reject a ramp more than 32760 from identity, so white keeps at least half its
+        // signal, which on the 2.2 curve is 0.5^2.2 = 22% light. (In HDR, 8% light through the PQ curve is only about
+        // 30% less signal, well inside the limit.)
+        private const double SdrMinLuminance = 0.22;
+
         /// <summary>
-        /// Signal scale for software brightness. The slider is treated as a target luminance fraction (like a
-        /// DDC/CI backlight, which is roughly linear in light output); because the panel's response is
-        /// signal^2.2, the signal is scaled by L^(1/2.2). The previous linear signal scale plus an extra gamma
-        /// darkening produced far less light than the same number on the hardware slider.
+        /// Whether Windows' gamma limit is lifted (<see cref="GammaRange"/>): then ramps may go anywhere, SDR dims to 8% like
+        /// HDR and warm color temperatures aren't clipped. Set at startup from the registry; dropped again if Windows
+        /// rejects a ramp anyway, as it does until the next sign-in after the value was set.
+        /// </summary>
+        internal static volatile bool RampFullRange;
+
+        /// <summary>Software brightness → fraction of light: 0% = 8%, 100% = unchanged. Treated like a DDC/CI backlight,
+        /// which is roughly linear in light output.</summary>
+        internal static double SoftwareLuminance(int brightness)
+        {
+            double bFrac = Math.Max(0, Math.Min(100, brightness)) / 100.0;
+            return SoftwareMinLuminance + (1.0 - SoftwareMinLuminance) * bFrac;
+        }
+
+        /// <summary>
+        /// Signal scale for software brightness in SDR: the panel's response is signal^2.2, so the signal is scaled by
+        /// L^(1/2.2), with L no lower than the driver allows. Up to 2.5.0 the floor was 30% light, much brighter than
+        /// the hardware slider at the same number.
         /// </summary>
         internal static double SoftwareBrightnessScale(int brightness)
         {
-            double bFrac = Math.Max(0, Math.Min(100, brightness)) / 100.0;
-            double luminance = SoftwareMinLuminance + (1.0 - SoftwareMinLuminance) * bFrac;
-            return Math.Pow(luminance, 1.0 / DisplayGamma);
+            double floor = RampFullRange ? 0.0 : SdrMinLuminance;
+            return Math.Pow(Math.Max(floor, SoftwareLuminance(brightness)), 1.0 / DisplayGamma);
+        }
+
+        // SMPTE ST 2084 (PQ) constants
+        private const double PqM1 = 2610.0 / 16384.0;
+        private const double PqM2 = 2523.0 / 4096.0 * 128.0;
+        private const double PqC1 = 3424.0 / 4096.0;
+        private const double PqC2 = 2413.0 / 4096.0 * 32.0;
+        private const double PqC3 = 2392.0 / 4096.0 * 32.0;
+
+        /// <summary>PQ signal (0-1) → light as a fraction of 10,000 nits.</summary>
+        internal static double PqToLight(double signal)
+        {
+            double p = Math.Pow(Math.Max(0.0, Math.Min(1.0, signal)), 1.0 / PqM2);
+            return Math.Pow(Math.Max(p - PqC1, 0.0) / (PqC2 - PqC3 * p), 1.0 / PqM1);
+        }
+
+        /// <summary>Light as a fraction of 10,000 nits → PQ signal (0-1).</summary>
+        internal static double LightToPq(double light)
+        {
+            if (light <= 0.0) return 0.0; // the formula gives 7e-7 here; black stays exactly black
+            double y = Math.Pow(Math.Max(0.0, Math.Min(1.0, light)), PqM1);
+            return Math.Pow((PqC1 + PqC2 * y) / (1.0 + PqC3 * y), PqM2);
+        }
+
+        /// <summary>The PQ signal that gives <paramref name="factor"/> times the light of <paramref name="signal"/>.</summary>
+        internal static double ScalePqLight(double signal, double factor)
+        {
+            if (factor >= 1.0) return Math.Max(0.0, Math.Min(1.0, signal));
+            return LightToPq(PqToLight(signal) * factor);
         }
 
         /// <summary>
@@ -793,28 +858,36 @@ namespace Displicare
         /// </summary>
         internal static void BuildRamp(DisplayInfo disp, ushort[] baseline, ushort[] output)
         {
-            // In HDR, color temperature and RGB gains go through the color filter (ComputeHdrFilter) instead,
-            // since the ramp's behavior is undefined there; only contrast and gamma stay on the ramp
-            double finalRedGain = 1.0, finalGreenGain = 1.0, finalBlueGain = 1.0;
-            if (!disp.IsHdr)
+            // HDR uses the same ramp. Microsoft leaves the ramp undefined there, but the alternative, the Windows color
+            // filter, makes the compositor redraw every frame, which turns off VRR in games
+            double tR = 1.0, tG = 1.0, tB = 1.0;
+            if (disp.ColorTemperature != 6500)
             {
-                double tR = 1.0, tG = 1.0, tB = 1.0;
-                if (disp.ColorTemperature != 6500)
-                {
-                    KelvinToRgb(disp.ColorTemperature, out tR, out tG, out tB);
-                }
-
-                finalRedGain   = Math.Max(0.0, Math.Min(1.0, tR * disp.RedGain));
-                finalGreenGain = Math.Max(0.0, Math.Min(1.0, tG * disp.GreenGain));
-                finalBlueGain  = Math.Max(0.0, Math.Min(1.0, tB * disp.BlueGain));
+                KelvinToRgb(disp.ColorTemperature, out tR, out tG, out tB);
             }
 
+            double finalRedGain   = Math.Max(0.0, Math.Min(1.0, tR * disp.RedGain));
+            double finalGreenGain = Math.Max(0.0, Math.Min(1.0, tG * disp.GreenGain));
+            double finalBlueGain  = Math.Max(0.0, Math.Min(1.0, tB * disp.BlueGain));
+
             // Software brightness via the GPU lookup table when DDC/CI is unsupported or turned off for this display
-            // (not in HDR: there the ramp's behavior is undefined, and UpdateColorFilter dims via the color filter)
             double softwareBrightnessScale = 1.0;
-            if (disp.UsesSoftwareBrightness && !disp.IsHdr)
+            if (disp.UsesSoftwareBrightness)
             {
                 softwareBrightnessScale = SoftwareBrightnessScale(disp.UserBrightness);
+            }
+
+            // In HDR the signal is PQ, where scaling the signal flattens contrast and washes colors out. There the
+            // same settings become light multipliers (gains in linear light, as on SDR's 2.2 curve, times the
+            // brightness fraction) applied through the PQ curve, which dims like a backlight
+            bool pq = disp.IsHdr;
+            double lightR = 1.0, lightG = 1.0, lightB = 1.0;
+            if (pq)
+            {
+                double light = disp.UsesSoftwareBrightness ? SoftwareLuminance(disp.UserBrightness) : 1.0;
+                lightR = Math.Pow(finalRedGain, DisplayGamma) * light;
+                lightG = Math.Pow(finalGreenGain, DisplayGamma) * light;
+                lightB = Math.Pow(finalBlueGain, DisplayGamma) * light;
             }
 
             double contrast = Math.Max(0.5, Math.Min(1.8, disp.Contrast));
@@ -852,14 +925,26 @@ namespace Displicare
                 double bc = (contrast == 1.0) ? bg : ((bg - 0.5) * contrast + 0.5);
 
                 // 3. Planckian color temperature, RGB channel gains & Software Brightness Scale
-                double rFinal = Math.Max(0.0, Math.Min(1.0, rc * finalRedGain * softwareBrightnessScale));
-                double gFinal = Math.Max(0.0, Math.Min(1.0, gc * finalGreenGain * softwareBrightnessScale));
-                double bFinal = Math.Max(0.0, Math.Min(1.0, bc * finalBlueGain * softwareBrightnessScale));
+                double rFinal, gFinal, bFinal;
+                if (pq)
+                {
+                    rFinal = ScalePqLight(rc, lightR);
+                    gFinal = ScalePqLight(gc, lightG);
+                    bFinal = ScalePqLight(bc, lightB);
+                }
+                else
+                {
+                    rFinal = Math.Max(0.0, Math.Min(1.0, rc * finalRedGain * softwareBrightnessScale));
+                    gFinal = Math.Max(0.0, Math.Min(1.0, gc * finalGreenGain * softwareBrightnessScale));
+                    bFinal = Math.Max(0.0, Math.Min(1.0, bc * finalBlueGain * softwareBrightnessScale));
+                }
 
-                // 4. Windows GDI driver deviation clamp (|val - identity| <= 32760); larger deviations are rejected
+                // 4. Windows GDI driver deviation clamp (|val - identity| <= 32760); larger deviations are rejected unless
+                // the limit is lifted (RampFullRange)
                 int identity = (i * 65535) / 255;
-                int minAllowed = Math.Max(0, identity - 32760);
-                int maxAllowed = Math.Min(65535, identity + 32760);
+                int limit = RampFullRange ? 65535 : 32760;
+                int minAllowed = Math.Max(0, identity - limit);
+                int maxAllowed = Math.Min(65535, identity + limit);
 
                 int rInt = Math.Max(minAllowed, Math.Min(maxAllowed, (int)Math.Round(rFinal * 65535.0)));
                 int gInt = Math.Max(minAllowed, Math.Min(maxAllowed, (int)Math.Round(gFinal * 65535.0)));
@@ -1011,7 +1096,6 @@ namespace Displicare
         public void ApplyColorAndGamma(DisplayInfo disp)
         {
             if (disp == null) return;
-            UpdateColorFilter();
 
             IntPtr hdc = IntPtr.Zero;
             try
@@ -1022,7 +1106,17 @@ namespace Displicare
                 lock (_gammaRampLock)
                 {
                     BuildRamp(disp, disp.OriginalRamp, _gammaBuffer);
-                    SetDeviceGammaRamp(hdc, _gammaBuffer);
+                    if (!SetDeviceGammaRamp(hdc, _gammaBuffer) && RampFullRange)
+                    {
+                        // The limit is lifted in the registry but not yet in effect (Windows reads it at sign-in):
+                        // stay within it until the next start
+                        RampFullRange = false;
+                        BuildRamp(disp, disp.OriginalRamp, _gammaBuffer);
+                        if (SetDeviceGammaRamp(hdc, _gammaBuffer))
+                            App.Log("Gamma range: Windows still applies its limit; sign out or restart for deeper dimming");
+                        else
+                            RampFullRange = true; // not the limit: this display refused the ramp anyway
+                    }
 
                     // Slider drags reapply the same ramp often; only touch the disk when it changed
                     if (!RampsMatch(_gammaBuffer, disp.LastAppliedRamp))
@@ -1106,10 +1200,6 @@ namespace Displicare
         public bool HasCustomGammaOrColor(DisplayInfo disp)
         {
             if (disp == null) return false;
-            bool curveChanged = Math.Abs(disp.Contrast - 1.0) > 0.001 || Math.Abs(disp.Gamma - 1.0) > 0.001;
-            // In HDR, brightness, warmth and gains live in the color filter; only the curve is on the ramp
-            if (disp.IsHdr) return curveChanged;
-
             bool hasSoftwareBrightness = disp.UsesSoftwareBrightness && disp.UserBrightness != 100;
             return hasSoftwareBrightness ||
                    disp.ColorTemperature != 6500 ||
@@ -1285,75 +1375,7 @@ namespace Displicare
             return list;
         }
 
-        #region HDR color filter dimming
-
-        // Software brightness in HDR at 0% still lets this fraction of light through. Much deeper than the
-        // 80-nit floor of Windows' SDR content brightness, without going fully black.
-        // 0.08 tuned by eye on an AORUS FO32U2 so Solar Sync's night level matches its hardware DDC/CI level.
-        private const double HdrMinLuminance = 0.08;
-
-        private readonly ColorFilterDimmer _colorFilter = new ColorFilterDimmer();
-
-        /// <summary>Software brightness → color filter scale for HDR: 0% = 8% light, 100% = unchanged.</summary>
-        public static float HdrFilterScale(int brightness)
-        {
-            double bFrac = Math.Max(0, Math.Min(100, brightness)) / 100.0;
-            return (float)(HdrMinLuminance + (1.0 - HdrMinLuminance) * bFrac);
-        }
-
-        /// <summary>
-        /// Per-channel filter values for an HDR display: color temperature × RGB gains, plus software
-        /// brightness when the display is in software mode. Warmth and gains are defined on the encoded
-        /// signal (like the SDR gamma ramp), while the compositor applies the filter to linear light in HDR,
-        /// so they're converted with the 2.2 display gamma to give the same white point as in SDR.
-        /// </summary>
-        internal static void ComputeHdrFilter(DisplayInfo d, out float r, out float g, out float b)
-        {
-            double tR = 1.0, tG = 1.0, tB = 1.0;
-            if (d.ColorTemperature != 6500)
-            {
-                KelvinToRgb(d.ColorTemperature, out tR, out tG, out tB);
-            }
-
-            double encR = Math.Max(0.0, Math.Min(1.0, tR * d.RedGain));
-            double encG = Math.Max(0.0, Math.Min(1.0, tG * d.GreenGain));
-            double encB = Math.Max(0.0, Math.Min(1.0, tB * d.BlueGain));
-
-            double light = d.UsesSoftwareBrightness ? HdrFilterScale(d.UserBrightness) : 1.0;
-
-            r = (float)(Math.Pow(encR, DisplayGamma) * light);
-            g = (float)(Math.Pow(encG, DisplayGamma) * light);
-            b = (float)(Math.Pow(encB, DisplayGamma) * light);
-        }
-
-        /// <summary>
-        /// The color filter covers every screen, so it follows one HDR display: the first in software mode
-        /// (its brightness matters most), otherwise the first HDR display. Cleared when no display is in HDR.
-        /// </summary>
-        internal static DisplayInfo FilterSource(IList<DisplayInfo> displays)
-        {
-            DisplayInfo source = null;
-            foreach (var d in displays)
-            {
-                if (!d.IsHdr) continue;
-                if (d.UsesSoftwareBrightness) return d;
-                if (source == null) source = d;
-            }
-            return source;
-        }
-
-        /// <summary>The filter values Windows should be applying right now: identity when no display is in HDR.</summary>
-        internal void ExpectedColorFilter(out float r, out float g, out float b)
-        {
-            r = g = b = 1f;
-            DisplayInfo source = FilterSource(Displays);
-            if (source != null) ComputeHdrFilter(source, out r, out g, out b);
-        }
-
-        public bool ReadColorFilter(out float r, out float g, out float b)
-        {
-            return _colorFilter.TryRead(out r, out g, out b);
-        }
+        #region Read-back for the hardware test
 
         /// <summary>The ramp the driver currently holds for this display, or null if it can't be read.</summary>
         public ushort[] ReadGammaRamp(DisplayInfo disp)
@@ -1384,27 +1406,11 @@ namespace Displicare
             return true;
         }
 
-        private void UpdateColorFilter()
-        {
-            DisplayInfo source = FilterSource(Displays);
-
-            if (source == null)
-            {
-                _colorFilter.Clear();
-                return;
-            }
-
-            float r, g, b;
-            ComputeHdrFilter(source, out r, out g, out b);
-            _colorFilter.Apply(r, g, b);
-        }
-
         #endregion
 
         public void Dispose()
         {
             _disposed = true;
-            _colorFilter.Dispose();
             lock (_ddcSyncLock)
             {
                 _pendingBrightness.Clear();

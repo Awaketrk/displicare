@@ -25,7 +25,7 @@
 ## Features
 
 - **Hardware brightness** over DDC/CI: changes the real backlight of supported monitors.
-- **Software brightness** for monitors without DDC/CI, and an **HDR mode**: with Windows HDR on, dimming, color temperature and RGB go through a Windows color filter, so they also work in HDR games and video.
+- **Software brightness** for monitors without DDC/CI, and an **HDR mode**: with Windows HDR on, color temperature, RGB and software dimming stay on the GPU gamma ramp, so games keep VRR (G-SYNC, FreeSync).
 - **Color calibration**: color temperature (2500–10000 K), RGB gains, contrast and gamma.
 - **Solar Sync**: follows the sun at your location, dimming (and optionally warming) the screen toward night.
 - **Presets**: built-in profiles (Night Light, Paper Read, OLED Vivid, Gaming FPS and more), plus your own.
@@ -56,17 +56,22 @@ Each release includes `SHA256SUMS.txt` to verify the downloads.
 
 The **Displays** tab shows each monitor's capabilities, switches it between hardware and software brightness, and holds the About card.
 
-**Something not working on your monitor?** Click **Hardware Test…** on the About card. It checks that your displays accept and keep what Displicare writes (gamma ramp, HDR color filter, DDC/CI backlight) and saves a report next to your settings; attach it to an [issue](https://github.com/Awaketrk/displicare/issues). The screen dims and changes color for a few seconds while it runs, and everything is put back afterwards.
+**Something not working on your monitor?** Click **Hardware Test…** on the About card. It checks that your displays accept and keep what Displicare writes (gamma ramp, DDC/CI backlight) and saves a report next to your settings; attach it to an [issue](https://github.com/Awaketrk/displicare/issues). The screen dims and changes color for a few seconds while it runs, and everything is put back afterwards.
 
 ### Brightness modes
 
 | Mode | Used when | How it dims |
 |---|---|---|
 | Hardware | The monitor supports DDC/CI (and it's on for that display) | Sets the monitor's own backlight |
-| Software | No DDC/CI, or hardware turned off for that display | GPU gamma ramp, down to ~30% light |
-| Software, HDR | Windows HDR is on | Windows color filter, down to 8% light; also dims HDR content |
+| Software | No DDC/CI, or hardware turned off for that display | GPU gamma ramp, down to 8% light in HDR and 22% in SDR (8% with Deeper software dimming) |
 
 Turn on DDC/CI in your monitor's on-screen menu to get hardware brightness.
+
+**Deeper software dimming** (Displays > General Settings, off by default): Windows rejects gamma ramps that stray far from normal, which stops software dimming in SDR at 22% light and the warmest color temperatures early. This toggle lifts that limit with Windows' own `GdiIcmGammaRange` setting, as f.lux's expanded range does. It applies to all apps, asks for admin, works after you sign out or restart, and turning it off puts back what was there. Uninstalling Displicare puts it back too (Windows asks for admin). To undo it by hand, run this in an admin terminal:
+
+```
+reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ICM" /v GdiIcmGammaRange /f
+```
 
 ### Display setups
 
@@ -108,7 +113,7 @@ Settings and the log live in `%LOCALAPPDATA%\Displicare` (portable builds: next 
 
 - **Location is estimated from your time zone.** For exact coordinates, close the app, set `UserLatitude` / `UserLongitude` in `settings.json` and set `AutoLocation` to `false`.
 - **Other color tools conflict.** While custom settings are active, Displicare restores its calibration if f.lux, Windows Night Light or a vendor tool changes it.
-- **HDR mode** covers all screens at once and can't run together with Windows' own color filters. Contrast and gamma still use the gamma ramp, which Windows doesn't define for HDR, so they may look different there.
+- **HDR:** everything uses the gamma ramp, worked out for HDR's PQ signal so dimming lowers the light like a backlight (down to 8%) instead of washing colors out. Windows doesn't define the ramp for HDR, so a GPU may handle it differently. Displicare doesn't use the Windows color filter: it would turn off VRR in games.
 
 ## Building
 
@@ -158,7 +163,7 @@ Between releases the version in `Properties\AssemblyInfo.cs` ends in `-test` (e.
 | `MonitorEngine.cs` | Display detection, DDC/CI, gamma ramps, presets |
 | `SolarEngine.cs` | Sun position and Solar Sync targets |
 | `ConfigManager.cs` | Settings loading/validation and start-with-Windows |
-| `ColorFilterDimmer.cs`, `HdrHelper.cs` | HDR detection and HDR dimming |
+| `HdrHelper.cs` | HDR detection |
 | `TrayManager.cs`, `TrayWheel.cs` | Tray icon, menu and mouse wheel |
 | `HardwareTest.cs`, `HardwareTestWindow.cs` | In-app hardware test and its report |
 | `Rooms/` | Display setups: the setup model, arranging screens, display layouts, EDID modes, sound outputs, controller, on-screen notes, the Setups tab and editor |

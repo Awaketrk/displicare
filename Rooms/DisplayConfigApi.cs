@@ -142,8 +142,27 @@ namespace Displicare.Rooms
         public uint bitsPerColorChannel;
     }
 
+    /// <summary>Windows 11 24H2+: also says which mode is active (SDR, wide color SDR, HDR).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2
+    {
+        public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+        public uint value;
+        public uint colorEncoding;
+        public uint bitsPerColorChannel;
+        public uint activeColorMode;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE
+    {
+        public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+        public uint value;
+    }
+
+    /// <summary>Windows 11 24H2+: turns HDR itself on or off (bit 0), leaving Auto Color Management alone.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct DISPLAYCONFIG_SET_HDR_STATE
     {
         public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
         public uint value;
@@ -208,6 +227,8 @@ namespace Displicare.Rooms
         public const uint DEVICE_INFO_GET_ADAPTER_NAME = 4;
         public const uint DEVICE_INFO_GET_ADVANCED_COLOR_INFO = 9;
         public const uint DEVICE_INFO_SET_ADVANCED_COLOR_STATE = 10;
+        public const uint DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2 = 15;
+        public const uint DEVICE_INFO_SET_HDR_STATE = 16;
 
         public const uint OUTPUT_TECHNOLOGY_MIRACAST = 15;
         public const uint OUTPUT_TECHNOLOGY_INDIRECT_WIRED = 16;
@@ -241,7 +262,9 @@ namespace Displicare.Rooms
         [DllImport("user32.dll")] public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_TARGET_DEVICE_NAME info);
         [DllImport("user32.dll")] public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_ADAPTER_NAME info);
         [DllImport("user32.dll")] public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO info);
+        [DllImport("user32.dll")] public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2 info);
         [DllImport("user32.dll")] public static extern int DisplayConfigSetDeviceInfo(ref DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE info);
+        [DllImport("user32.dll")] public static extern int DisplayConfigSetDeviceInfo(ref DISPLAYCONFIG_SET_HDR_STATE info);
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         public static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);

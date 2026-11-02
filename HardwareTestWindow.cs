@@ -56,8 +56,8 @@ namespace Displicare
             });
             intro.Children.Add(new TextBlock
             {
-                Text = "Checks that this PC's displays accept and keep what Displicare writes: the GPU gamma ramp, " +
-                       "the HDR color filter and the monitor backlight (DDC/CI).\n\n" +
+                Text = "Checks that this PC's displays accept and keep what Displicare writes: the GPU gamma ramp " +
+                       "and the monitor backlight (DDC/CI).\n\n" +
                        "Your screen will dim and change color for a few seconds (up to about 30 with a DDC/CI monitor). " +
                        "Everything is put back afterwards. " +
                        "Press Esc to stop at any time.\n\n" +

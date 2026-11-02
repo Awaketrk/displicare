@@ -107,19 +107,38 @@ namespace Displicare.Rooms
             return DisplayConfigApi.DisplayConfigGetDeviceInfo(ref name) == DisplayConfigApi.ERROR_SUCCESS ? name.viewGdiDeviceName : null;
         }
 
-        /// <summary>-1 if HDR isn't supported (or unknown), 0 if off, 1 if on.</summary>
+        /// <summary>
+        /// -1 if HDR isn't supported (or unknown), 0 if off, 1 if on. Auto Color Management (wide color in SDR) also turns
+        /// advanced color on, so that counts as off (<see cref="HdrHelper.IsHdrMode"/>).
+        /// </summary>
         public static int GetHdrState(LUID adapter, uint targetId)
         {
+            var info2 = new DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2();
+            info2.header = DisplayConfigApi.Header(DisplayConfigApi.DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2,
+                Marshal.SizeOf(typeof(DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2)), adapter, targetId);
+            if (DisplayConfigApi.DisplayConfigGetDeviceInfo(ref info2) == DisplayConfigApi.ERROR_SUCCESS)
+            {
+                if ((info2.value & 0x10) == 0) return -1; // highDynamicRangeSupported
+                return HdrHelper.IsHdrMode(info2.value, (int)info2.activeColorMode) ? 1 : 0;
+            }
+
             var info = new DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO();
             info.header = DisplayConfigApi.Header(DisplayConfigApi.DEVICE_INFO_GET_ADVANCED_COLOR_INFO,
                 Marshal.SizeOf(typeof(DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO)), adapter, targetId);
             if (DisplayConfigApi.DisplayConfigGetDeviceInfo(ref info) != DisplayConfigApi.ERROR_SUCCESS) return -1;
             if ((info.value & 0x1) == 0) return -1; // advancedColorSupported
-            return (info.value & 0x2) != 0 ? 1 : 0;  // advancedColorEnabled
+            return HdrHelper.IsHdrMode(info.value, -1) ? 1 : 0;
         }
 
         public static bool SetHdrState(LUID adapter, uint targetId, bool enabled)
         {
+            // With Auto Color Management on, advanced color is already on in SDR, so the old switch doesn't mean HDR
+            var hdr = new DISPLAYCONFIG_SET_HDR_STATE();
+            hdr.header = DisplayConfigApi.Header(DisplayConfigApi.DEVICE_INFO_SET_HDR_STATE,
+                Marshal.SizeOf(typeof(DISPLAYCONFIG_SET_HDR_STATE)), adapter, targetId);
+            hdr.value = enabled ? 1u : 0u;
+            if (DisplayConfigApi.DisplayConfigSetDeviceInfo(ref hdr) == DisplayConfigApi.ERROR_SUCCESS) return true;
+
             var state = new DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE();
             state.header = DisplayConfigApi.Header(DisplayConfigApi.DEVICE_INFO_SET_ADVANCED_COLOR_STATE,
                 Marshal.SizeOf(typeof(DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE)), adapter, targetId);

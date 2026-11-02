@@ -75,6 +75,7 @@ namespace Displicare
         public MainWindow()
         {
             _isUpdatingUi = true;
+            MonitorEngine.RampFullRange = GammaRange.IsUnlimited(GammaRange.Read());
             _engine = new MonitorEngine();
             _engine.DdcRecovered += d => Dispatcher.BeginInvoke((Action)(() => OnDdcRecovered(d)));
             _settings = ConfigManager.Load();
@@ -312,6 +313,7 @@ namespace Displicare
             UpdateSolarLimitsLabels();
 
             InitializeBrightnessKeys();
+            InitializeDeepDimming();
 
             _isUpdatingUi = false;
 

@@ -128,9 +128,7 @@ namespace Displicare
                     FontWeight = FontWeights.Bold,
                     Foreground = new SolidColorBrush(Color.FromRgb(255, 255, 255))
                 };
-                string softwareLabel = d.IsHdr
-                    ? "🌗 HDR Color Filter Dimmer (8-100% light)"
-                    : "🎨 Software GPU-LUT Dimmer (0-100%)";
+                string softwareLabel = "🎨 Software GPU-LUT Dimmer (0-100%)";
                 var modeText = new TextBlock
                 {
                     Text = d.SupportsDdcCi && d.UseHardwareBrightness ? "⚡ Hardware DDC/CI (0-100%)" : softwareLabel,
@@ -238,11 +236,13 @@ namespace Displicare
                     hwChk.Unchecked += (s, ev) => { d.UseHardwareBrightness = false; _engine.ResetBacklightForSoftwareMode(d); ApplyCurrentSettings(true); BuildMonitorRows(); BuildDisplayHardwareCards(); };
                     sp.Children.Add(hwChk);
 
-                    if (!d.UseHardwareBrightness && !d.IsHdr)
+                    if (!d.UseHardwareBrightness)
                     {
                         var softNote = new TextBlock
                         {
-                            Text = "🎨 Software dimming active via the GPU gamma ramp (dims down to ~30% light).",
+                            Text = d.IsHdr || MonitorEngine.RampFullRange
+                                ? "🎨 Software dimming active via the GPU gamma ramp (down to 8% light)."
+                                : "🎨 Software dimming active via the GPU gamma ramp (down to 22% light in SDR; Deeper software dimming in General Settings goes to 8%).",
                             FontSize = 10,
                             TextWrapping = TextWrapping.Wrap,
                             Margin = new Thickness(0, 4, 0, 0),
@@ -304,9 +304,9 @@ namespace Displicare
             });
             sp.Children.Add(new TextBlock
             {
-                Text = "Color temperature, RGB and software brightness (down to 8% light) go through a Windows color filter, " +
-                       "which also applies to HDR games and videos. It covers all screens and can't run together with Windows' own " +
-                       "color filters. Contrast and gamma may look different in HDR. Hardware DDC/CI brightness works normally.",
+                Text = "Color temperature, RGB, contrast, gamma and software brightness use the GPU gamma ramp, as in SDR, " +
+                       "so games keep VRR (G-SYNC, FreeSync). Windows doesn't define the ramp for HDR, so colors and software " +
+                       "dimming may look a little different there. Hardware DDC/CI brightness works normally.",
                 FontSize = 10.5,
                 TextWrapping = TextWrapping.Wrap,
                 LineHeight = 15,
