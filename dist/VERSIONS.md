@@ -133,3 +133,13 @@ Versions before 2.1.0 were private test builds (1.x under the earlier name Lumin
   - **Portable Package**: `Displicare-v2.5.1-Portable.zip` (211.5 KB)
     - SHA256: `0635F55628013898168FA6053028A363D588A57FF84AD0A200151433F806446F`
 - **Notes**: Games keep VRR: the Windows color filter is gone and HDR tint and software dimming use a PQ-aware gamma ramp (down to 8% light); SDR screens with Auto Color Management are no longer treated as HDR; SDR software dimming follows the hardware curve (down to 22%); HDR on/off is caught when Windows reports it late; optional Deeper software dimming lifts Windows' gamma limit (GdiIcmGammaRange) and puts it back when turned off or on uninstall.
+
+### Version 2.5.2 Release
+- **Release Date**: 2026-11-03 03:15:32
+- **Assembly Version**: 2.5.2.0
+- **Packages in dist/v2.5.2/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.5.2-Setup.exe` (2.13 MB)
+    - SHA256: `362DE415E388E76B174265DC631D6F641C0E3E366C49D48E398DAD28AEBC4533`
+  - **Portable Package**: `Displicare-v2.5.2-Portable.zip` (212.7 KB)
+    - SHA256: `4234DA822DAE68A993AB54ACC5E5426D195D20FB52BB0645157289866D00FCC5`
+- **Notes**: The uninstaller closes a running Displicare first (gamma put back, settings saved), then puts back the Deeper software dimming setting and removes the files; a second start opens the running copy (the wake-up message now goes straight to its window).
