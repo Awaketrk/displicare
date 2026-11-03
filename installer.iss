@@ -58,9 +58,9 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-; Puts Windows' gamma ramp limit (GdiIcmGammaRange) back if Deeper software dimming changed it; Windows asks for admin.
-; Does nothing when Displicare didn't change it. Runs before the files are removed.
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--restore-gamma-range"; Flags: runhidden waituntilterminated; RunOnceId: "RestoreGammaRange"
+; Runs before the files are removed: closes a running Displicare (so its files aren't in use), then puts Windows'
+; gamma ramp limit (GdiIcmGammaRange) back if Deeper software dimming changed it (Windows asks for admin only then).
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "DisplicareUninstall"
 
 
 

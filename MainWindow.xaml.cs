@@ -39,6 +39,7 @@ namespace Displicare
         private SolarStatus _lastSolarStatus = null;
         private List<TextBlock> _monitorBadgeTexts = new List<TextBlock>();
         private uint _wakeupMsg = 0;
+        private uint _exitMsg = 0;
         private System.Windows.Interop.HwndSource _hwndSource = null;
 
         private WinEventDelegate _foregroundWinEventDelegate;
@@ -336,6 +337,7 @@ namespace Displicare
             try
             {
                 _wakeupMsg = App.RegisterWindowMessage(App.WakeupMessageName);
+                _exitMsg = App.RegisterWindowMessage(App.ExitMessageName);
                 _hwndSource = System.Windows.Interop.HwndSource.FromHwnd(helper.Handle);
                 if (_hwndSource != null)
                 {

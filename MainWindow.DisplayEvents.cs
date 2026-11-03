@@ -25,6 +25,12 @@ namespace Displicare
                 }));
                 handled = true;
             }
+            else if (_exitMsg != 0 && (uint)msg == _exitMsg)
+            {
+                // The uninstaller: exit cleanly so the files can be removed
+                Dispatcher.BeginInvoke((Action)ExitApp);
+                handled = true;
+            }
             else if (_shellHookMsg != 0 && (uint)msg == _shellHookMsg)
             {
                 // Shell events that can come with a gamma reset (activation, new windows, fullscreen, monitor moves).

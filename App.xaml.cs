@@ -15,7 +15,44 @@ namespace Displicare
         public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
         public const string WakeupMessageName = "Displicare_Wakeup_Message";
-        public static readonly IntPtr HWND_BROADCAST = (IntPtr)0xffff;
+        /// <summary>Asks a running copy to exit as if from the tray menu (gamma put back, settings saved); sent by --uninstall.</summary>
+        public const string ExitMessageName = "Displicare_Exit_Message";
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder text, int max);
+
+        /// <summary>
+        /// Posts a registered message to the main window of every other running Displicare. Not HWND_BROADCAST: the main
+        /// window is kept off the taskbar, so WPF gives it a hidden owner, and Windows doesn't broadcast to owned windows
+        /// (up to 2.5.1 the wake-up message never arrived). Returns how many windows got it.
+        /// </summary>
+        internal static int PostToRunningCopies(string messageName)
+        {
+            uint msg = RegisterWindowMessage(messageName);
+            if (msg == 0) return 0;
+            uint self = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+            var pids = new System.Collections.Generic.HashSet<uint>();
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName("Displicare"))
+            {
+                using (p) { if ((uint)p.Id != self) pids.Add((uint)p.Id); }
+            }
+            if (pids.Count == 0) return 0;
+
+            int posted = 0;
+            var title = new System.Text.StringBuilder(64);
+            EnumWindows((hWnd, l) =>
+            {
+                uint pid;
+                GetWindowThreadProcessId(hWnd, out pid);
+                if (!pids.Contains(pid)) return true;
+                title.Length = 0;
+                GetWindowText(hWnd, title, title.Capacity);
+                if (title.ToString() == "Displicare" && PostMessage(hWnd, msg, IntPtr.Zero, IntPtr.Zero)) posted++;
+                return true;
+            }, IntPtr.Zero);
+            return posted;
+        }
 
         private static Mutex _singleInstanceMutex;
         private static bool _ownsMutex = false;
@@ -88,9 +125,13 @@ namespace Displicare
                 ev.Handled = true;
             };
 
-            // The uninstaller runs this before removing the files: put back what Deeper software dimming changed
-            if (e.Args != null && Array.Exists(e.Args, a => a.Equals(RestoreGammaRangeArg, StringComparison.OrdinalIgnoreCase)))
+            // The uninstaller runs --uninstall before removing the files: close the running copy (so its files aren't in use
+            // and it saves before, not after), then put back what Deeper software dimming changed.
+            // --restore-gamma-range is the second step alone (the 2.5.1 uninstaller calls it).
+            bool uninstall = HasArg(e.Args, UninstallArg);
+            if (uninstall || HasArg(e.Args, RestoreGammaRangeArg))
             {
+                if (uninstall) CloseRunningCopies();
                 RestoreGammaRange();
                 Shutdown();
                 return;
@@ -113,11 +154,7 @@ namespace Displicare
                     return;
                 }
                 Log("Another instance already running. Sending wakeup signal and exiting.");
-                uint msg = RegisterWindowMessage(WakeupMessageName);
-                if (msg != 0)
-                {
-                    PostMessage(HWND_BROADCAST, msg, IntPtr.Zero, IntPtr.Zero);
-                }
+                PostToRunningCopies(WakeupMessageName);
                 Shutdown();
                 return;
             }
@@ -179,6 +216,39 @@ namespace Displicare
         }
 
         internal const string RestoreGammaRangeArg = "--restore-gamma-range";
+        internal const string UninstallArg = "--uninstall";
+
+        private static bool HasArg(string[] args, string name)
+        {
+            return args != null && Array.Exists(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// Asks every other running Displicare to exit cleanly (the exit message, as the tray menu's Exit) and waits up to
+        /// 10 s; one that doesn't is ended, so the uninstaller can remove the files.
+        /// </summary>
+        private static void CloseRunningCopies()
+        {
+            int self = System.Diagnostics.Process.GetCurrentProcess().Id;
+            var others = Array.FindAll(System.Diagnostics.Process.GetProcessesByName("Displicare"), p => p.Id != self);
+            if (others.Length == 0) return;
+            PostToRunningCopies(ExitMessageName);
+            foreach (var p in others)
+            {
+                using (p)
+                {
+                    try
+                    {
+                        if (p.WaitForExit(10000)) continue;
+                        Log("Uninstall: Displicare (" + p.Id + ") didn't exit; ending it");
+                        p.Kill();
+                        p.WaitForExit(3000);
+                    }
+                    catch (Exception ex) { Log("Uninstall: " + ex.Message); }
+                }
+            }
+            Log("Uninstall: running copies closed");
+        }
 
         /// <summary>
         /// Puts GdiIcmGammaRange back to what it was before Deeper software dimming (Windows asks for admin), only if
