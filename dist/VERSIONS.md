@@ -123,3 +123,13 @@ Versions before 2.1.0 were private test builds (1.x under the earlier name Lumin
   - **Portable Package**: `Displicare-v2.5.0-Portable.zip` (209.0 KB)
     - SHA256: `313EAFD6BD108DF786D88CC32CF73C799837454269034084D2FFA5136FF70226`
 - **Notes**: Room switching becomes display setups: any combination of screens with their places, resolution, refresh rate, HDR and sound, edited like DisplayFusion's monitor profiles (drag and snap, per-screen modes per setup); rooms carry over; the way back (Ctrl+Alt+0 or View + B held 4 s) goes to the safe setup without asking, closes launchers and falls back to every connected screen.
+
+### Version 2.5.1 Release
+- **Release Date**: 2026-11-03 03:01:50
+- **Assembly Version**: 2.5.1.0
+- **Packages in dist/v2.5.1/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.5.1-Setup.exe` (2.13 MB)
+    - SHA256: `B19978EFA76D084632DC52E66D80AF8C51582A611D4A243129D4E4C4496CF052`
+  - **Portable Package**: `Displicare-v2.5.1-Portable.zip` (211.5 KB)
+    - SHA256: `0635F55628013898168FA6053028A363D588A57FF84AD0A200151433F806446F`
+- **Notes**: Games keep VRR: the Windows color filter is gone and HDR tint and software dimming use a PQ-aware gamma ramp (down to 8% light); SDR screens with Auto Color Management are no longer treated as HDR; SDR software dimming follows the hardware curve (down to 22%); HDR on/off is caught when Windows reports it late; optional Deeper software dimming lifts Windows' gamma limit (GdiIcmGammaRange) and puts it back when turned off or on uninstall.
