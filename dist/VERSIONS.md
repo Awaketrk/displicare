@@ -143,3 +143,13 @@ Versions before 2.1.0 were private test builds (1.x under the earlier name Lumin
   - **Portable Package**: `Displicare-v2.5.2-Portable.zip` (212.7 KB)
     - SHA256: `4234DA822DAE68A993AB54ACC5E5426D195D20FB52BB0645157289866D00FCC5`
 - **Notes**: The uninstaller closes a running Displicare first (gamma put back, settings saved), then puts back the Deeper software dimming setting and removes the files; a second start opens the running copy (the wake-up message now goes straight to its window).
+
+### Version 2.5.3 Release
+- **Release Date**: 2026-11-06 15:32:42
+- **Assembly Version**: 2.5.3.0
+- **Packages in dist/v2.5.3/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.5.3-Setup.exe` (2.14 MB)
+    - SHA256: `02DC2C3328B9C5204DD7535AEA36DC8DF89641624AB5B1A81B83DC5656098180`
+  - **Portable Package**: `Displicare-v2.5.3-Portable.zip` (216.9 KB)
+    - SHA256: `7BE04308DE60E8599A19273B3879BBF06B71AFD1FFDE0E73E04ED722F5E4B0CA`
+- **Notes**: A Solar Sync pause ends at the next sun phase and survives a restart; your colors are kept apart from the sun's and come back when warmth sync or Solar Sync turns off; the active preset is highlighted, and presets lock under warmth sync; a monitor that answered DDC/CI stays on its backlight through HDMI handshakes instead of stacking software dimming; sync off keeps the selected screen after a restart; default brightness is 100; Reset All asks first; uninstalling removes the startup entry.
