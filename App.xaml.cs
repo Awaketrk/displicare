@@ -133,6 +133,7 @@ namespace Displicare
             {
                 if (uninstall) CloseRunningCopies();
                 RestoreGammaRange();
+                if (uninstall) ConfigManager.RemoveRunEntryForThisExe();
                 Shutdown();
                 return;
             }

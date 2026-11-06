@@ -177,6 +177,28 @@ namespace Displicare
             if (_startupItem != null) _startupItem.Checked = enabled;
         }
 
+        private string _activePreset;
+        private bool _presetsLocked;
+
+        /// <summary>A check mark on the active preset; the submenu is off while warmth sync drives the color.</summary>
+        public void UpdatePresetMenuState(string active, bool locked)
+        {
+            _activePreset = active;
+            _presetsLocked = locked;
+            try
+            {
+                if (_presetMenu == null) return;
+                _presetMenu.Enabled = !locked;
+                _presetMenu.Text = locked ? "🎨 Color Presets (off: warmth sync is on)" : "🎨 Color Presets";
+                foreach (ToolStripItem entry in _presetMenu.DropDownItems)
+                {
+                    var item = entry as ToolStripMenuItem;
+                    if (item != null && item.Tag != null) item.Checked = Equals(item.Tag, active);
+                }
+            }
+            catch { }
+        }
+
         public void UpdateCustomPresetsMenu(System.Collections.Generic.List<CustomPreset> customPresets)
         {
             try
@@ -199,6 +221,7 @@ namespace Displicare
                         if (OnQuickPresetSelected != null)
                             OnQuickPresetSelected(pName);
                     });
+                    item.Tag = pName;
                     _presetMenu.DropDownItems.Add(item);
                 }
 
@@ -220,9 +243,11 @@ namespace Displicare
                             if (OnQuickPresetSelected != null)
                                 OnQuickPresetSelected("custom:" + cpId);
                         });
+                        item.Tag = "custom:" + cpId;
                         _presetMenu.DropDownItems.Add(item);
                     }
                 }
+                UpdatePresetMenuState(_activePreset, _presetsLocked);
             }
             catch { }
         }

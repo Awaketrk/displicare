@@ -27,8 +27,8 @@
 - **Hardware brightness** over DDC/CI: changes the real backlight of supported monitors.
 - **Software brightness** for monitors without DDC/CI, and an **HDR mode**: with Windows HDR on, color temperature, RGB and software dimming stay on the GPU gamma ramp, so games keep VRR (G-SYNC, FreeSync).
 - **Color calibration**: color temperature (2500–10000 K), RGB gains, contrast and gamma.
-- **Solar Sync**: follows the sun at your location, dimming (and optionally warming) the screen toward night.
-- **Presets**: built-in profiles (Night Light, Paper Read, OLED Vivid, Gaming FPS and more), plus your own.
+- **Solar Sync**: follows the sun at your location, dimming (and optionally warming) the screen toward night. Changing brightness yourself pauses it until the sun reaches its next phase, also across a restart, or until you click **Re-Sync Sun**. With warmth sync on, it controls color temperature, so presets and the warmth slider are off until you turn warmth sync off.
+- **Presets**: built-in profiles (Night Light, Paper Read, OLED Vivid, Gaming FPS and more), plus your own. The one in use is highlighted, here and in the tray menu.
 - **Multi-monitor**: control every display together or each one separately; settings are remembered per monitor.
 - **Quick brightness**: scroll over the tray icon, or use optional hotkeys, without opening the window.
 - **Display setups** (optional): for a PC wired to a desk monitor and TVs in other rooms, save which screens are on, where they go and their resolution, refresh rate, HDR and sound, and switch between them with a click, hotkey or controller.

@@ -12,10 +12,110 @@ namespace Displicare
     /// <summary>Built-in and custom presets: the preset list, applying, saving and deleting.</summary>
     public partial class MainWindow
     {
+        /// <summary>Warmth sync drives the color temperature, so presets and the warmth slider would only fight it.</summary>
+        private bool WarmthSyncDrivesColor
+        {
+            get { return _settings != null && _settings.SolarSyncEnabled && _settings.SolarColorSyncEnabled; }
+        }
+
+        private const string PresetsLockedMessage = "Warmth sync is controlling color temperature. Turn it off in Solar Sync to use presets.";
+
+        /// <summary>
+        /// The preset the current values are, as a tray key: a built-in's name or "custom:id", or null. Worked out from the
+        /// values, not remembered, so it's right for each screen and goes away when a slider moves. A custom preset also
+        /// has a brightness, and wins over a built-in with the same colors.
+        /// </summary>
+        internal static string MatchPreset(int kelvin, double red, double green, double blue, double contrast, double gamma, int brightness,
+            IList<ColorPreset> builtIn, IList<CustomPreset> custom)
+        {
+            if (custom != null)
+            {
+                foreach (var p in custom)
+                {
+                    if (p.Brightness == brightness && SameColors(kelvin, red, green, blue, contrast, gamma,
+                        p.ColorTemperature, p.RedGain, p.GreenGain, p.BlueGain, p.Contrast, p.Gamma)) return "custom:" + p.Id;
+                }
+            }
+            if (builtIn != null)
+            {
+                foreach (var p in builtIn)
+                {
+                    if (SameColors(kelvin, red, green, blue, contrast, gamma,
+                        p.ColorTemp, p.RedGain, p.GreenGain, p.BlueGain, p.Contrast, p.Gamma)) return p.Name;
+                }
+            }
+            return null;
+        }
+
+        private static bool SameColors(int k1, double r1, double g1, double b1, double c1, double m1,
+            int k2, double r2, double g2, double b2, double c2, double m2)
+        {
+            const double tolerance = 0.005;
+            return k1 == k2 && Math.Abs(r1 - r2) < tolerance && Math.Abs(g1 - g2) < tolerance && Math.Abs(b1 - b2) < tolerance
+                && Math.Abs(c1 - c2) < tolerance && Math.Abs(m1 - m2) < tolerance;
+        }
+
+        private readonly Dictionary<string, Border> _customPresetCards = new Dictionary<string, Border>();
+        private static readonly Brush ActivePresetBackground = FrozenBrush(90, 36, 51);
+        private static readonly Brush ActivePresetBorder = FrozenBrush(232, 86, 74);
+        private static readonly Brush CustomPresetBorder = FrozenBrush(58, 42, 59);
+
+        private static Brush FrozenBrush(byte r, byte g, byte b)
+        {
+            var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+            brush.Freeze();
+            return brush;
+        }
+
+        /// <summary>Highlights the active preset here and in the tray, and locks the color controls under warmth sync.</summary>
+        private void UpdatePresetStates()
+        {
+            if (GridBuiltInPresets == null || _settings == null) return;
+
+            bool locked = WarmthSyncDrivesColor;
+            string active = locked ? null : MatchPreset((int)SliderKelvin.Value, SliderRed.Value, SliderGreen.Value, SliderBlue.Value,
+                SliderContrast.Value, SliderGamma.Value, (int)SliderBrightness.Value, MonitorEngine.GetPresets(), _settings.CustomPresets);
+
+            foreach (var child in GridBuiltInPresets.Children)
+            {
+                var button = child as Button;
+                if (button == null) continue;
+                if (active != null && Equals(button.Tag, active))
+                {
+                    button.Background = ActivePresetBackground;
+                    button.BorderBrush = ActivePresetBorder;
+                }
+                else
+                {
+                    button.ClearValue(Control.BackgroundProperty);
+                    button.ClearValue(Control.BorderBrushProperty);
+                }
+            }
+            foreach (var card in _customPresetCards)
+            {
+                card.Value.BorderBrush = "custom:" + card.Key == active ? ActivePresetBorder : CustomPresetBorder;
+            }
+
+            double dimmed = locked ? 0.45 : 1.0;
+            GridBuiltInPresets.IsEnabled = !locked;
+            GridBuiltInPresets.Opacity = dimmed;
+            StackCustomPresets.IsEnabled = !locked;
+            StackCustomPresets.Opacity = dimmed;
+            TxtPresetsLocked.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
+            SliderKelvin.IsEnabled = !locked;
+            SliderKelvin.Opacity = dimmed;
+            GridQuickKelvin.IsEnabled = !locked;
+            GridQuickKelvin.Opacity = dimmed;
+            TxtKelvinLocked.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
+
+            if (_tray != null) _tray.UpdatePresetMenuState(active, locked);
+        }
+
         private void BuildCustomPresetsList()
         {
             if (StackCustomPresets == null) return;
             StackCustomPresets.Children.Clear();
+            _customPresetCards.Clear();
 
             if (_settings == null || _settings.CustomPresets == null || _settings.CustomPresets.Count == 0)
             {
@@ -126,6 +226,7 @@ namespace Displicare
 
                 mainStack.Children.Add(specsPanel);
                 card.Child = mainStack;
+                _customPresetCards[p.Id] = card;
 
                 // Clicking anywhere on card applies the preset
                 card.MouseLeftButtonUp += (s, e) =>
@@ -139,11 +240,17 @@ namespace Displicare
 
                 StackCustomPresets.Children.Add(card);
             }
+            UpdatePresetStates();
         }
 
         private void ApplyPresetByName(string presetName)
         {
             if (string.IsNullOrWhiteSpace(presetName)) return;
+            if (WarmthSyncDrivesColor)
+            {
+                TxtStatus.Text = PresetsLockedMessage;
+                return;
+            }
 
             if (_settings != null && _settings.CustomPresets != null)
             {
@@ -162,13 +269,6 @@ namespace Displicare
             {
                 if (p.Name.Equals(presetName, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (_settings != null && _settings.SolarSyncEnabled)
-                    {
-                        _manualOverrideActive = true;
-                        if (BadgeSolarActive != null) BadgeSolarActive.Visibility = Visibility.Collapsed;
-                        if (BtnResumeSolar != null) BtnResumeSolar.Visibility = Visibility.Visible;
-                    }
-
                     _isUpdatingUi = true;
                     SliderKelvin.Value = p.ColorTemp;
                     SliderRed.Value = p.RedGain;
@@ -187,6 +287,7 @@ namespace Displicare
                     double r, g, b;
                     MonitorEngine.KelvinToRgb(p.ColorTemp, out r, out g, out b);
                     BorderKelvinSwatch.Background = new SolidColorBrush(Color.FromRgb((byte)(r * 255), (byte)(g * 255), (byte)(b * 255)));
+                    UpdateSliderLabels();
 
                     _settings.ActivePreset = p.Name;
                     _isUpdatingUi = false;
@@ -201,12 +302,15 @@ namespace Displicare
         private void ApplyCustomPreset(CustomPreset p)
         {
             if (p == null) return;
+            if (WarmthSyncDrivesColor)
+            {
+                TxtStatus.Text = PresetsLockedMessage;
+                return;
+            }
 
             if (_settings != null && _settings.SolarSyncEnabled)
             {
-                _manualOverrideActive = true;
-                if (BadgeSolarActive != null) BadgeSolarActive.Visibility = Visibility.Collapsed;
-                if (BtnResumeSolar != null) BtnResumeSolar.Visibility = Visibility.Visible;
+                PauseSolarSync();
             }
 
             _isUpdatingUi = true;
@@ -231,6 +335,7 @@ namespace Displicare
             var swatchBrush = new SolidColorBrush(Color.FromRgb((byte)(r * 255), (byte)(g * 255), (byte)(b * 255)));
             swatchBrush.Freeze();
             BorderKelvinSwatch.Background = swatchBrush;
+            UpdateSliderLabels();
 
             _settings.ActivePreset = p.Name;
             _isUpdatingUi = false;
@@ -261,6 +366,12 @@ namespace Displicare
         {
             if (_settings == null) return;
             if (_settings.CustomPresets == null) _settings.CustomPresets = new List<CustomPreset>();
+            if (_settings.CustomPresets.Count >= ConfigManager.MaxCustomPresets)
+            {
+                // Past the limit a preset would save fine and be gone after the next restart
+                TxtStatus.Text = "You have the maximum of " + ConfigManager.MaxCustomPresets + " custom presets. Delete one to save another.";
+                return;
+            }
 
             string name = null;
             if (TxtCustomPresetName != null && !string.IsNullOrWhiteSpace(TxtCustomPresetName.Text))

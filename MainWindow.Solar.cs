@@ -17,7 +17,10 @@ namespace Displicare
             foreach (var d in _engine.Displays)
             {
                 bool kelvinChanged = forceApply || (d.ColorTemperature != targetKelvin);
-                bool brightnessChanged = forceApply || (d.UserBrightness != targetBrightness);
+                // Also when the monitor's own backlight drifted from the target (woke from standby, a display switch,
+                // DDC/CI turned off and on): comparing only with our last target never put those right
+                bool brightnessChanged = forceApply || (d.UserBrightness != targetBrightness)
+                    || (d.SupportsDdcCi && d.UseHardwareBrightness && d.CurrentBrightness != (uint)targetBrightness);
                 d.UserBrightness = targetBrightness;
                 if (applyColor)
                 {
@@ -56,6 +59,55 @@ namespace Displicare
 
         #region Solar Circadian Methods
 
+        // The sun phase when a manual change paused Solar Sync; it resumes by itself when the phase changes
+        private string _overridePhase;
+
+        /// <summary>
+        /// A manual change (slider, tray wheel, hotkeys, preset) while Solar Sync runs: it pauses until the sun reaches its
+        /// next phase, as f.lux does. Up to 2.5.2 it stayed paused until Resume was clicked, so one scroll in the
+        /// afternoon kept the screen there all evening.
+        /// </summary>
+        private void PauseSolarSync()
+        {
+            if (!_manualOverrideActive)
+            {
+                _overridePhase = _lastSolarStatus != null ? _lastSolarStatus.PhaseName : null;
+                _settings.SolarPausedInPhase = _overridePhase;
+                _settings.SolarPausedAtTicks = DateTime.UtcNow.Ticks;
+                ScheduleSave();
+                App.Log("Solar Sync: paused by a manual change until the next sun phase (now " + _overridePhase + ")");
+            }
+            _manualOverrideActive = true;
+            if (BadgeSolarActive != null) BadgeSolarActive.Visibility = Visibility.Collapsed;
+            if (BtnResumeSolar != null) BtnResumeSolar.Visibility = Visibility.Visible;
+        }
+
+        private void ClearSolarPause()
+        {
+            _manualOverrideActive = false;
+            _overridePhase = null;
+            _settings.SolarPausedInPhase = null;
+            _settings.SolarPausedAtTicks = 0;
+            ScheduleSave();
+        }
+
+        /// <summary>
+        /// At startup: a pause saved by the last run still holds in the same sun phase. Without this, a restart let the sun
+        /// take brightness and warmth back from a preset. Only within 12 hours, or yesterday's "Peak Daylight" would count.
+        /// </summary>
+        internal static bool SolarPauseHolds(string pausedIn, long pausedAtTicks, string phaseNow, DateTime utcNow)
+        {
+            if (string.IsNullOrEmpty(pausedIn) || pausedIn != phaseNow || pausedAtTicks <= 0) return false;
+            var age = utcNow - new DateTime(pausedAtTicks, DateTimeKind.Utc);
+            return age >= TimeSpan.Zero && age < TimeSpan.FromHours(12);
+        }
+
+        /// <summary>Whether a pause from <paramref name="pausedIn"/> is over now that the sun is in <paramref name="phaseNow"/>.</summary>
+        internal static bool SolarPauseEnds(string pausedIn, string phaseNow)
+        {
+            return pausedIn != null && phaseNow != null && pausedIn != phaseNow;
+        }
+
         private void UpdateSolarCircadian(bool forceApply)
         {
             if (_isUpdatingUi || _settings == null || TxtSolarPhase == null || _hardwareTestRunning) return;
@@ -72,12 +124,20 @@ namespace Displicare
                 _settings.SolarDayKelvin, _settings.SolarNightKelvin);
             _lastSolarStatus = status;
 
+            if (_manualOverrideActive && SolarPauseEnds(_overridePhase, status.PhaseName))
+            {
+                ClearSolarPause();
+                App.Log("Solar Sync: resumed at " + status.PhaseName);
+            }
+
             // Update UI elements
             TxtSolarPhase.Text = string.Format("{0} • {1:0.0}°", status.PhaseName, status.ElevationDeg);
             TxtSolarTimes.Text = status.SunTimesText;
             BarSunJourney.Value = status.DayProgressPercent;
             TxtSolarTargetBrightness.Text = "Target: " + status.TargetBrightness + "%";
             TxtSolarTargetKelvin.Text = "Warmth: " + status.TargetKelvin + " K";
+
+            UpdatePresetStates();
 
             bool active = _settings.SolarSyncEnabled;
             bool colorSync = _settings.SolarColorSyncEnabled;
@@ -126,6 +186,7 @@ namespace Displicare
                     swatchBrush.Freeze();
                     BorderKelvinSwatch.Background = swatchBrush;
                 }
+                UpdateSliderLabels();
 
                 _isUpdatingUi = false;
                 ApplySolarCircadianTargets(status.TargetBrightness, status.TargetKelvin, colorSync, forceApply);
@@ -139,7 +200,8 @@ namespace Displicare
             if (_isUpdatingUi || _settings == null || ChkSolarSync == null) return;
             bool isEnabled = ChkSolarSync.IsChecked == true;
             _settings.SolarSyncEnabled = isEnabled;
-            _manualOverrideActive = false;
+            ClearSolarPause();
+            UpdatePresetStates();
 
             if (!isEnabled)
             {
@@ -165,23 +227,21 @@ namespace Displicare
             if (_isUpdatingUi || _settings == null || ChkSolarColorSync == null) return;
             bool enableColor = ChkSolarColorSync.IsChecked == true;
             _settings.SolarColorSyncEnabled = enableColor;
+            UpdatePresetStates();
             UpdateSolarLimitsLabels();
 
             if (_settings.SolarSyncEnabled)
             {
-                _manualOverrideActive = false;
+                ClearSolarPause();
                 if (!enableColor)
                 {
-                    // Reset Kelvin to 6500K default across all displays while preserving individual calibration offsets
-                    _isUpdatingUi = true;
-                    SliderKelvin.Value = 6500;
-                    TxtKelvinValue.Text = "6500 K";
-                    BorderKelvinSwatch.Background = Brushes.White;
-                    _isUpdatingUi = false;
+                    // The sun lets go of the color: each screen gets the user's own back. Up to 2.5.3 this reset to 6500 K
+                    // and saved that, so a preset chosen earlier was lost.
+                    RestoreManualColors();
+                    ShowManualKelvinOnSliders();
 
                     foreach (var d in _engine.Displays)
                     {
-                        d.ColorTemperature = 6500;
                         if (_engine.HasCustomGammaOrColor(d))
                             _engine.ApplyColorAndGamma(d);
                         else
@@ -199,31 +259,69 @@ namespace Displicare
             }
         }
 
-        private void RestoreManualSettings()
+        /// <summary>
+        /// The color temperature a screen returns to when warmth sync lets go. With screen sync off each screen has its own
+        /// in its profile (the sun's never gets saved there); with sync on they all share the slider's.
+        /// </summary>
+        internal static int ManualKelvin(bool syncAll, DisplayProfile profile, int settingsKelvin)
         {
-            int brightness = _settings.Brightness;
-            int kelvin = _settings.ColorTemperature;
+            return !syncAll && profile != null ? profile.ColorTemperature : settingsKelvin;
+        }
 
-            if (BadgeSolarActive != null) BadgeSolarActive.Visibility = Visibility.Collapsed;
-            if (BtnResumeSolar != null) BtnResumeSolar.Visibility = Visibility.Collapsed;
+        /// <summary>What a screen's profile keeps: under warmth sync the screen shows the sun's color, not the user's.</summary>
+        internal static int KelvinToSave(bool warmthSyncDrives, int savedKelvin, int screenKelvin)
+        {
+            return warmthSyncDrives ? savedKelvin : screenKelvin;
+        }
+
+        private void RestoreManualColors()
+        {
+            foreach (var d in _engine.Displays)
+            {
+                var profile = ConfigManager.FindProfile(_settings.DisplayProfiles, d.MonitorKey, d.FriendlyName, d.DeviceName);
+                d.ColorTemperature = ManualKelvin(_settings.SyncAllMonitors, profile, _settings.ColorTemperature);
+            }
+        }
+
+        private void ShowManualKelvinOnSliders()
+        {
+            int kelvin = _settings.ColorTemperature;
+            var displays = _engine.Displays;
+            int selected = CmbDisplaySelect.SelectedIndex - 1;
+            if (!_settings.SyncAllMonitors && selected >= 0 && selected < displays.Count) kelvin = displays[selected].ColorTemperature;
 
             _isUpdatingUi = true;
-            SliderBrightness.Value = brightness;
             SliderKelvin.Value = kelvin;
-            TxtBrightnessValue.Text = brightness + "%";
             TxtKelvinValue.Text = kelvin + " K";
             double r, g, b;
             MonitorEngine.KelvinToRgb(kelvin, out r, out g, out b);
             var swatchBrush = new SolidColorBrush(Color.FromRgb((byte)(r * 255), (byte)(g * 255), (byte)(b * 255)));
             swatchBrush.Freeze();
             BorderKelvinSwatch.Background = swatchBrush;
+            UpdateSliderLabels();
             _isUpdatingUi = false;
+        }
+
+        private void RestoreManualSettings()
+        {
+            int brightness = _settings.Brightness;
+
+            if (BadgeSolarActive != null) BadgeSolarActive.Visibility = Visibility.Collapsed;
+            if (BtnResumeSolar != null) BtnResumeSolar.Visibility = Visibility.Collapsed;
+
+            // Solar Sync only touched the colors with warmth sync on; otherwise each screen still has its own
+            if (_settings.SolarColorSyncEnabled) RestoreManualColors();
+
+            _isUpdatingUi = true;
+            SliderBrightness.Value = brightness;
+            TxtBrightnessValue.Text = brightness + "%";
+            _isUpdatingUi = false;
+            ShowManualKelvinOnSliders(); // the icon, warmth text and active preset follow the restored values
 
             // Solar Sync drove every display, so restore every display
             foreach (var d in _engine.Displays)
             {
                 d.UserBrightness = brightness;
-                d.ColorTemperature = kelvin;
                 if (d.SupportsDdcCi && d.UseHardwareBrightness)
                 {
                     _engine.QueueHardwareBrightness(d, brightness);
@@ -245,7 +343,7 @@ namespace Displicare
 
         private void BtnResumeSolar_Click(object sender, RoutedEventArgs e)
         {
-            _manualOverrideActive = false;
+            ClearSolarPause();
             UpdateSolarCircadian(true);
         }
 

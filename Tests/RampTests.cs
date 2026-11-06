@@ -313,6 +313,27 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void KnownDdcMonitorStaysOnItsBacklightThroughAMissedRead()
+        {
+            // Regression (2.5.3): an HDMI handshake made the AORUS miss a read, and software dimming stacked on its backlight
+            var known = Display(hardware: true, brightness: 50);
+            known.MinBrightness = 0; known.MaxBrightness = 255; known.CurrentBrightness = 50;
+            var d = Display(hardware: true, brightness: 50);
+            d.SupportsDdcCi = false;
+            MonitorEngine.ApplyDdcMiss(d, known);
+            Assert.True(d.SupportsDdcCi && d.DdcUnconfirmed, "still DDC/CI, unconfirmed");
+            Assert.True(!d.UsesSoftwareBrightness, "stays on hardware dimming");
+            Assert.Equal(255u, d.MaxBrightness, "keeps the monitor's range");
+            Assert.Equal(50u, d.CurrentBrightness, "keeps the backlight value");
+            Assert.Equal((ushort)65535, Build(d)[255], "no software dimming on the ramp");
+
+            var unknown = Display(hardware: true, brightness: 50);
+            MonitorEngine.ApplyDdcMiss(unknown, null);
+            Assert.True(!unknown.SupportsDdcCi && !unknown.DdcUnconfirmed, "never answered: no DDC/CI for now");
+            Assert.True(unknown.UsesSoftwareBrightness, "dims in software");
+        }
+
+        [Test]
         public static void BacklightUsesTheMonitorsOwnRange()
         {
             Assert.Equal(40u, MonitorEngine.PercentToRaw(40, 0, 100), "0-100 (AORUS): unchanged");

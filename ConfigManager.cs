@@ -55,7 +55,7 @@ namespace Displicare
         {
             Id = Guid.NewGuid().ToString("N");
             Name = "My Preset";
-            Brightness = 80;
+            Brightness = 100;
             ColorTemperature = 6500;
             RedGain = 1.0;
             GreenGain = 1.0;
@@ -117,7 +117,7 @@ namespace Displicare
 
         private void SetDefaults()
         {
-            Brightness = 80;
+            Brightness = 100;
             ColorTemperature = 6500;
             RedGain = 1.0;
             GreenGain = 1.0;
@@ -146,7 +146,7 @@ namespace Displicare
 
         private void SetDefaults()
         {
-            Brightness = 80;
+            Brightness = 100;
             ColorTemperature = 6500;
             SyncAllMonitors = true;
             ActivePreset = "Balanced";
@@ -161,7 +161,7 @@ namespace Displicare
             Gamma = 1.0;
             SolarSyncEnabled = false;
             SolarColorSyncEnabled = false; // Default: false (only dim brightness, color range is a choice)
-            SolarDayBrightness = 85;
+            SolarDayBrightness = 100;
             SolarNightBrightness = 35;
             SolarDayKelvin = 6500;
             SolarNightKelvin = 3400;
@@ -249,6 +249,14 @@ namespace Displicare
 
         [DataMember]
         public bool SolarSyncEnabled { get; set; }
+
+        /// <summary>The sun phase a manual change paused Solar Sync in, so the pause survives a restart. Null when not paused.</summary>
+        [DataMember]
+        public string SolarPausedInPhase { get; set; }
+
+        /// <summary>When Solar Sync was paused (UTC ticks).</summary>
+        [DataMember]
+        public long SolarPausedAtTicks { get; set; }
 
         [DataMember]
         public bool SolarColorSyncEnabled { get; set; }
@@ -415,7 +423,7 @@ namespace Displicare
             }
             if (settings == null) return null;
 
-            settings.Brightness = SanitizeInt(settings.Brightness, 0, 100, 80);
+            settings.Brightness = SanitizeInt(settings.Brightness, 0, 100, 100);
             settings.ColorTemperature = SanitizeInt(settings.ColorTemperature, 2000, 10000, 6500);
             settings.RedGain = Sanitize(settings.RedGain, 0.1, 2.0, 1.0);
             settings.GreenGain = Sanitize(settings.GreenGain, 0.1, 2.0, 1.0);
@@ -424,7 +432,7 @@ namespace Displicare
             settings.Gamma = Sanitize(settings.Gamma, 0.5, 2.5, 1.0);
 
             // Ranges match the Solar Sync sliders so a saved value is never silently clamped by the UI
-            settings.SolarDayBrightness = SanitizeInt(settings.SolarDayBrightness, 50, 100, 85);
+            settings.SolarDayBrightness = SanitizeInt(settings.SolarDayBrightness, 50, 100, 100);
             settings.SolarNightBrightness = SanitizeInt(settings.SolarNightBrightness, 10, 80, 35);
             settings.SolarDayKelvin = SanitizeInt(settings.SolarDayKelvin, 5000, 7500, 6500);
             settings.SolarNightKelvin = SanitizeInt(settings.SolarNightKelvin, 2500, 4500, 3400);
@@ -448,7 +456,7 @@ namespace Displicare
             settings.DisplayProfiles.RemoveAll(p => p == null);
             foreach (var p in settings.DisplayProfiles)
             {
-                p.Brightness = SanitizeInt(p.Brightness, 0, 100, 80);
+                p.Brightness = SanitizeInt(p.Brightness, 0, 100, 100);
                 p.ColorTemperature = SanitizeInt(p.ColorTemperature, 2000, 10000, 6500);
                 p.RedGain = Sanitize(p.RedGain, 0.1, 2.0, 1.0);
                 p.GreenGain = Sanitize(p.GreenGain, 0.1, 2.0, 1.0);
@@ -473,7 +481,7 @@ namespace Displicare
                 if (string.IsNullOrWhiteSpace(cp.Id)) cp.Id = Guid.NewGuid().ToString("N");
                 if (string.IsNullOrWhiteSpace(cp.Name)) cp.Name = "Custom Preset";
                 if (cp.Name.Length > MaxPresetNameLength) cp.Name = cp.Name.Substring(0, MaxPresetNameLength);
-                cp.Brightness = SanitizeInt(cp.Brightness, 0, 100, 80);
+                cp.Brightness = SanitizeInt(cp.Brightness, 0, 100, 100);
                 cp.ColorTemperature = SanitizeInt(cp.ColorTemperature, 2000, 10000, 6500);
                 cp.RedGain = Sanitize(cp.RedGain, 0.1, 2.0, 1.0);
                 cp.GreenGain = Sanitize(cp.GreenGain, 0.1, 2.0, 1.0);
@@ -679,6 +687,32 @@ namespace Displicare
             }
             catch { }
             return false;
+        }
+
+        /// <summary>Whether a Windows startup entry starts this exe, not another copy (installed or portable).</summary>
+        internal static bool RunEntryStarts(string entry, string exePath)
+        {
+            return !string.IsNullOrEmpty(entry) && !string.IsNullOrEmpty(exePath)
+                && entry.IndexOf(exePath, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// For the uninstaller: the app's own toggle writes the entry, so the installer doesn't know about it, and an entry
+        /// for a deleted exe would stay in Windows' startup list.
+        /// </summary>
+        public static void RemoveRunEntryForThisExe()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunRegistryKey, true))
+                {
+                    if (key != null && RunEntryStarts(key.GetValue(AppRegistryName) as string, System.Reflection.Assembly.GetExecutingAssembly().Location))
+                    {
+                        key.DeleteValue(AppRegistryName, false);
+                    }
+                }
+            }
+            catch { }
         }
 
         public static void SetRunOnStartup(bool enable, bool startMinimized)

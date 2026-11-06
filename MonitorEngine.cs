@@ -11,7 +11,7 @@ namespace Displicare
     {
         public DisplayInfo()
         {
-            UserBrightness = 80;
+            UserBrightness = 100;
             ColorTemperature = 6500;
             RedGain = 1.0;
             GreenGain = 1.0;
@@ -60,6 +60,9 @@ namespace Displicare
         public bool IsHdr { get; set; }
 
         public bool UsesSoftwareBrightness { get { return !SupportsDdcCi || !UseHardwareBrightness; } }
+
+        // It has answered DDC/CI before but missed the last read: still treated as DDC/CI while RetryDdc asks again
+        public bool DdcUnconfirmed { get; set; }
     }
 
     public class ColorPreset
@@ -317,10 +320,11 @@ namespace Displicare
                         disp.Gamma = existing.Gamma;
                         disp.UseHardwareBrightness = existing.UseHardwareBrightness;
                         disp.OriginalRamp = existing.OriginalRamp;
+                        disp.LastAppliedRamp = existing.LastAppliedRamp;
                     }
                     else
                     {
-                        disp.UserBrightness = 80;
+                        disp.UserBrightness = 100;
                         disp.ColorTemperature = 6500;
                         disp.RedGain = 1.0;
                         disp.GreenGain = 1.0;
@@ -370,6 +374,7 @@ namespace Displicare
                                         if (read)
                                         {
                                             SetDdcRange(disp, minB, curB, maxB);
+                                            RememberDdc(disp);
                                             if (!hasExisting)
                                             {
                                                 disp.UserBrightness = (int)disp.CurrentBrightness;
@@ -380,9 +385,10 @@ namespace Displicare
                                         }
                                     }
 
-                                    // A miss is often temporary (a monitor waking up, or busy right after sign-in), so it
-                                    // leaves the user's hardware/software choice alone; RetryDdc keeps asking.
-                                    if (!foundBrightness) disp.SupportsDdcCi = false;
+                                    // A miss is often temporary (a monitor waking up, busy right after sign-in or during an HDMI
+                                    // handshake), so it leaves the user's hardware/software choice alone; RetryDdc keeps
+                                    // asking. A monitor that has answered before stays on its backlight meanwhile.
+                                    if (!foundBrightness) ApplyDdcMiss(disp, KnownDdc(disp));
                                     App.Log("DDC/CI " + disp.FriendlyName + ": " + (foundBrightness
                                         ? "backlight " + disp.CurrentBrightness + "% (range " + disp.MinBrightness + "-" + disp.MaxBrightness + ")"
                                         : "no answer, will retry"));
@@ -419,7 +425,7 @@ namespace Displicare
 
             // Also displays set to software: a monitor busy switching modes (HDR on/off) misses a read, and without
             // asking again its card would lose the DDC/CI option as if the monitor couldn't do it
-            var waiting = newDisplays.FindAll(x => !x.SupportsDdcCi && x.HMonitor != IntPtr.Zero);
+            var waiting = newDisplays.FindAll(x => (!x.SupportsDdcCi || x.DdcUnconfirmed) && x.HMonitor != IntPtr.Zero);
             if (waiting.Count > 0) ThreadPool.QueueUserWorkItem(_ => RetryDdc(waiting, generation));
         }
 
@@ -468,6 +474,48 @@ namespace Displicare
         /// </summary>
         public event Action<DisplayInfo> DdcRecovered;
 
+        /// <summary>Raised (on a worker thread) when a monitor that used to answer DDC/CI kept missing every retry.</summary>
+        public event Action<DisplayInfo> DdcLost;
+
+        // Monitors that have answered DDC/CI, with their range. An HDMI handshake resets the displays again and again and the
+        // monitors miss reads meanwhile; up to 2.5.2 each miss meant software dimming on top of the backlight, which stayed
+        // if the next reset's read succeeded, until a forced Solar Sync.
+        private readonly Dictionary<string, DisplayInfo> _knownDdc = new Dictionary<string, DisplayInfo>(StringComparer.OrdinalIgnoreCase);
+
+        private static string DdcKey(DisplayInfo disp)
+        {
+            return disp.MonitorKey ?? disp.DeviceName;
+        }
+
+        private void RememberDdc(DisplayInfo disp)
+        {
+            lock (_knownDdc) _knownDdc[DdcKey(disp)] = disp;
+        }
+
+        private DisplayInfo KnownDdc(DisplayInfo disp)
+        {
+            DisplayInfo known;
+            lock (_knownDdc) return _knownDdc.TryGetValue(DdcKey(disp), out known) ? known : null;
+        }
+
+        /// <summary>
+        /// A missed read: a monitor known to answer keeps its range and backlight value, unconfirmed, and stays on hardware
+        /// dimming; any other counts as having no DDC/CI for now.
+        /// </summary>
+        internal static void ApplyDdcMiss(DisplayInfo disp, DisplayInfo known)
+        {
+            if (known == null)
+            {
+                disp.SupportsDdcCi = false;
+                return;
+            }
+            disp.SupportsDdcCi = true;
+            disp.DdcUnconfirmed = true;
+            disp.MinBrightness = known.MinBrightness;
+            disp.MaxBrightness = known.MaxBrightness;
+            disp.CurrentBrightness = known.CurrentBrightness;
+        }
+
         private void RetryDdc(List<DisplayInfo> waiting, int generation)
         {
             int elapsed = 0;
@@ -484,6 +532,7 @@ namespace Displicare
                     uint min, cur, max;
                     if (!TryReadDdc(disp.HMonitor, out min, out cur, out max)) continue;
                     SetDdcRange(disp, min, cur, max);
+                    RememberDdc(disp);
                     waiting.RemoveAt(i);
                     App.Log("DDC/CI " + disp.FriendlyName + ": answered after " + at + " s, backlight " + disp.CurrentBrightness + "%");
                     var handler = DdcRecovered;
@@ -492,7 +541,16 @@ namespace Displicare
                 if (waiting.Count == 0) return;
             }
             foreach (var disp in waiting)
+            {
                 App.Log("DDC/CI " + disp.FriendlyName + ": still no answer" + (disp.UseHardwareBrightness ? ", using software brightness" : ""));
+                if (!disp.DdcUnconfirmed) continue;
+                // It really stopped answering (DDC/CI turned off in its menu): now software has to dim it
+                disp.DdcUnconfirmed = false;
+                disp.SupportsDdcCi = false;
+                lock (_knownDdc) _knownDdc.Remove(DdcKey(disp));
+                var lost = DdcLost;
+                if (lost != null) lost(disp);
+            }
         }
 
         private bool TryReadDdc(IntPtr hMonitor, out uint min, out uint cur, out uint max)
@@ -524,6 +582,7 @@ namespace Displicare
         private static void SetDdcRange(DisplayInfo disp, uint min, uint cur, uint max)
         {
             disp.SupportsDdcCi = true;
+            disp.DdcUnconfirmed = false;
             disp.MinBrightness = min;
             disp.MaxBrightness = max;
             disp.CurrentBrightness = (uint)RawToPercent(cur, min, max);

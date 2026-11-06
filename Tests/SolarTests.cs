@@ -79,5 +79,42 @@ namespace Displicare.Tests
             Assert.Equal(100, status.TargetBrightness, "day brightness");
             Assert.Equal(6500, status.TargetKelvin, "day color");
         }
+
+        [Test]
+        public static void ManualPauseEndsAtTheNextSunPhase()
+        {
+            // Regression (2.5.2): a scroll or hotkey paused Solar Sync until Resume was clicked
+            Assert.True(!MainWindow.SolarPauseEnds("Peak Daylight", "Peak Daylight"), "same phase: still paused");
+            Assert.True(MainWindow.SolarPauseEnds("Peak Daylight", "Afternoon Daylight"), "next phase: resumes");
+            Assert.True(MainWindow.SolarPauseEnds("Night Comfort", "Dusk / Night Transition"), "dawn: resumes");
+            Assert.True(!MainWindow.SolarPauseEnds(null, "Golden Hour"), "unknown start phase: stays paused");
+        }
+
+        [Test]
+        public static void WarmthSyncNeverReplacesTheUsersColor()
+        {
+            // Regression (2.5.3): warmth sync off reset to 6500 K and moving brightness saved the sun's color, so a preset was lost
+            Assert.Equal(3400, MainWindow.KelvinToSave(true, 3400, 5200), "the sun's 5200 K isn't saved");
+            Assert.Equal(5200, MainWindow.KelvinToSave(false, 3400, 5200), "a manual color is");
+
+            var profile = new DisplayProfile { ColorTemperature = 3400 };
+            Assert.Equal(3400, MainWindow.ManualKelvin(false, profile, 4500), "sync off: the screen's own color");
+            Assert.Equal(4500, MainWindow.ManualKelvin(true, profile, 4500), "sync on: the shared color");
+            Assert.Equal(4500, MainWindow.ManualKelvin(false, null, 4500), "no profile yet: the shared color");
+        }
+
+        [Test]
+        public static void ManualPauseSurvivesARestartInTheSamePhase()
+        {
+            // Regression (2.5.3): a restart let the sun take warmth and brightness back from a preset
+            var now = new DateTime(2026, 11, 6, 12, 0, 0, DateTimeKind.Utc);
+            long hourAgo = now.AddHours(-1).Ticks;
+            Assert.True(MainWindow.SolarPauseHolds("Peak Daylight", hourAgo, "Peak Daylight", now), "same phase, an hour ago: still paused");
+            Assert.True(!MainWindow.SolarPauseHolds("Peak Daylight", hourAgo, "Golden Hour", now), "another phase: over");
+            Assert.True(!MainWindow.SolarPauseHolds("Peak Daylight", now.AddDays(-1).Ticks, "Peak Daylight", now), "yesterday's same phase: over");
+            Assert.True(!MainWindow.SolarPauseHolds(null, hourAgo, "Peak Daylight", now), "not paused");
+            Assert.True(!MainWindow.SolarPauseHolds("Peak Daylight", 0, "Peak Daylight", now), "no time saved");
+            Assert.True(!MainWindow.SolarPauseHolds("Peak Daylight", now.AddHours(2).Ticks, "Peak Daylight", now), "clock moved back: over");
+        }
     }
 }

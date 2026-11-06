@@ -14,13 +14,6 @@ namespace Displicare
     {
         private void PopulateDisplays()
         {
-            int savedIdx = (CmbDisplaySelect != null) ? CmbDisplaySelect.SelectedIndex : 0;
-            string savedDeviceName = null;
-            if (savedIdx > 0 && savedIdx - 1 < _engine.Displays.Count)
-            {
-                savedDeviceName = _engine.Displays[savedIdx - 1].DeviceName;
-            }
-
             bool wasUpdating = _isUpdatingUi;
             _isUpdatingUi = true;
             try
@@ -28,7 +21,8 @@ namespace Displicare
                 CmbDisplaySelect.Items.Clear();
                 CmbDisplaySelect.Items.Add("✦ All Displays (Synchronized)");
 
-                int targetIndex = 0;
+                var keys = new List<string>();
+                int primaryIndex = 0;
                 for (int i = 0; i < _engine.Displays.Count; i++)
                 {
                     var d = _engine.Displays[i];
@@ -38,24 +32,13 @@ namespace Displicare
                         i + 1, d.FriendlyName, primaryTag, d.ResolutionWidth, d.ResolutionHeight, capTag);
                     CmbDisplaySelect.Items.Add(itemText);
 
-                    if (savedDeviceName != null && string.Equals(d.DeviceName, savedDeviceName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        targetIndex = i + 1;
-                    }
+                    keys.Add(DisplayKey(d));
+                    if (d.IsPrimary) primaryIndex = i;
                 }
 
-                if (targetIndex > 0)
-                {
-                    CmbDisplaySelect.SelectedIndex = targetIndex;
-                }
-                else if (_settings != null && !_settings.SyncAllMonitors && _engine.Displays.Count > 0 && savedIdx > 0)
-                {
-                    CmbDisplaySelect.SelectedIndex = Math.Min(savedIdx, _engine.Displays.Count);
-                }
-                else
-                {
-                    CmbDisplaySelect.SelectedIndex = 0;
-                }
+                int entry = PickDisplayEntry(keys, primaryIndex, _selectedDisplayKey, _settings == null || _settings.SyncAllMonitors);
+                CmbDisplaySelect.SelectedIndex = entry;
+                _selectedDisplayKey = entry > 0 ? keys[entry - 1] : null;
             }
             finally
             {
@@ -75,12 +58,18 @@ namespace Displicare
             TxtHardwareBadge.Text = (anyDdc ? "DDC/CI" : "GAMMA") + " • " + displayCount + " DISPLAY" + (displayCount != 1 ? "S" : "");
         }
 
+        private string _monitorRowsSignature;
+
         private void BuildMonitorRows()
         {
             // Fast in-place badge update when monitor topology is unchanged (eliminates GC churn during slider drags)
             // Note: _engine.Displays returns a fresh copy per access, so snapshot it once
             var displays = _engine.Displays;
-            if (_monitorBadgeTexts.Count == displays.Count && StackMonitorRows.Children.Count == displays.Count)
+            // Same screens in the same mode: comparing only the count kept the old names after a switch to other screens
+            var signature = new System.Text.StringBuilder();
+            foreach (var s in displays) signature.Append(s.FriendlyName).Append(s.IsPrimary ? "*" : "").Append(s.SupportsDdcCi && s.UseHardwareBrightness ? "H" : "S").Append('|');
+            string rowsSignature = signature.ToString();
+            if (rowsSignature == _monitorRowsSignature && _monitorBadgeTexts.Count == displays.Count && StackMonitorRows.Children.Count == displays.Count)
             {
                 for (int i = 0; i < displays.Count; i++)
                 {
@@ -89,6 +78,7 @@ namespace Displicare
                 return;
             }
 
+            _monitorRowsSignature = rowsSignature;
             StackMonitorRows.Children.Clear();
             _monitorBadgeTexts.Clear();
 
@@ -168,6 +158,23 @@ namespace Displicare
             }
         }
 
+        /// <summary>
+        /// Switches this screen between its backlight and software dimming, whichever screen is selected above (the sliders
+        /// only reach the selected one with sync off). The ramp is rewritten too, or the software-dimmed one would stack on
+        /// the backlight.
+        /// </summary>
+        private void SetHardwareBrightness(DisplayInfo d, bool hardware)
+        {
+            d.UseHardwareBrightness = hardware;
+            if (hardware) _engine.QueueHardwareBrightness(d, d.UserBrightness);
+            else _engine.ResetBacklightForSoftwareMode(d);
+            _engine.ApplyColorAndGamma(d);
+            SyncDisplayProfilesToSettings();
+            ScheduleSave();
+            BuildMonitorRows();
+            BuildDisplayHardwareCards();
+        }
+
         private void BuildDisplayHardwareCards()
         {
             StackDisplayCards.Children.Clear();
@@ -230,10 +237,8 @@ namespace Displicare
                         IsChecked = d.UseHardwareBrightness,
                         Style = (Style)FindResource("ModernCheckBox")
                     };
-                    // forceColor: switching modes must rewrite the ramp, otherwise the software-dimmed ramp
-                    // stays on screen after switching to hardware (and stacks on top of the backlight)
-                    hwChk.Checked += (s, ev) => { d.UseHardwareBrightness = true; ApplyCurrentSettings(true); BuildMonitorRows(); BuildDisplayHardwareCards(); };
-                    hwChk.Unchecked += (s, ev) => { d.UseHardwareBrightness = false; _engine.ResetBacklightForSoftwareMode(d); ApplyCurrentSettings(true); BuildMonitorRows(); BuildDisplayHardwareCards(); };
+                    hwChk.Checked += (s, ev) => SetHardwareBrightness(d, true);
+                    hwChk.Unchecked += (s, ev) => SetHardwareBrightness(d, false);
                     sp.Children.Add(hwChk);
 
                     if (!d.UseHardwareBrightness)

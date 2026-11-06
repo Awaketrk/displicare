@@ -119,7 +119,7 @@ namespace Displicare
                     _topologyChangedDuringTest = false;
                     HandleDisplayTopologyChange();
                 }
-                if (_settings != null && _settings.SolarSyncEnabled)
+                if (_settings != null && _settings.SolarSyncEnabled && !_manualOverrideActive)
                 {
                     UpdateSolarCircadian(true);
                 }

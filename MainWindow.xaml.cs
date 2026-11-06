@@ -79,6 +79,7 @@ namespace Displicare
             MonitorEngine.RampFullRange = GammaRange.IsUnlimited(GammaRange.Read());
             _engine = new MonitorEngine();
             _engine.DdcRecovered += d => Dispatcher.BeginInvoke((Action)(() => OnDdcRecovered(d)));
+            _engine.DdcLost += d => Dispatcher.BeginInvoke((Action)(() => OnDdcLost(d)));
             _settings = ConfigManager.Load();
 
             _saveDebounceTimer = new System.Windows.Threading.DispatcherTimer();
@@ -151,6 +152,7 @@ namespace Displicare
                     ChkRunAtStartup.IsChecked = enabled;
                     _isUpdatingUi = false;
                     ConfigManager.SetRunOnStartup(enabled, _settings.StartMinimized);
+                    ScheduleSave();
                 });
             };
 
@@ -232,14 +234,25 @@ namespace Displicare
                     _settings.SolarDayBrightness, _settings.SolarNightBrightness,
                     _settings.SolarDayKelvin, _settings.SolarNightKelvin);
 
-                initialBrightness = solarStatus.TargetBrightness;
-                if (_settings.SolarColorSyncEnabled)
+                if (SolarPauseHolds(_settings.SolarPausedInPhase, _settings.SolarPausedAtTicks, solarStatus.PhaseName, DateTime.UtcNow))
                 {
-                    initialKelvin = solarStatus.TargetKelvin;
+                    // Still paused by a manual change: the saved values stay, not the sun's
+                    _manualOverrideActive = true;
+                    _overridePhase = _settings.SolarPausedInPhase;
                 }
                 else
                 {
-                    initialKelvin = 6500;
+                    _settings.SolarPausedInPhase = null;
+                    initialBrightness = solarStatus.TargetBrightness;
+                }
+
+                // Without warmth sync the color stays the user's: 6500 here put 6500 K on every screen at the next
+                // slider move or scroll, which lost a preset's color temperature after each restart. With it, every
+                // screen shows the sun's color, even during a pause; the profiles hold the user's for later.
+                if (_settings.SolarColorSyncEnabled)
+                {
+                    initialKelvin = solarStatus.TargetKelvin;
+                    foreach (var d in _engine.Displays) d.ColorTemperature = initialKelvin;
                 }
             }
             else if (_engine.Displays.Count > 0)
@@ -268,6 +281,10 @@ namespace Displicare
             // Update labels to match
             TxtBrightnessValue.Text = initialBrightness + "%";
             TxtKelvinValue.Text = initialKelvin + " K";
+            UpdateSliderLabels();
+
+            // Sync off: the sliders show the selected screen, not whichever screen was adjusted last
+            ShowSelectedDisplayOnSliders();
 
             // Initialize software-controlled displays via GPU gamma ramp
             foreach (var d in _engine.Displays)
@@ -322,7 +339,7 @@ namespace Displicare
             _solarTimer.Start();
 
             // Immediately apply circadian sync on boot if enabled, or apply saved settings
-            if (_settings.SolarSyncEnabled)
+            if (_settings.SolarSyncEnabled && !_manualOverrideActive)
             {
                 UpdateSolarCircadian(true);
             }
@@ -332,6 +349,9 @@ namespace Displicare
                 // Fill the sun panel with real data now instead of showing XAML placeholder text until the first 20s tick
                 UpdateSolarCircadian(false);
             }
+
+            // With sync off the sliders only reached the selected screen: the others get their saved colors too
+            RebuildRamps();
 
             // Hook up single-instance wake-up message listener and Shell Hook listener
             try
@@ -372,7 +392,8 @@ namespace Displicare
                     {
                         _engine.RefreshDisplays();
                         PopulateDisplays();
-                        UpdateSolarCircadian(true);
+                        // Not while paused by a manual change: that overwrote a preset a few seconds after each start
+                        UpdateSolarCircadian(!_manualOverrideActive);
                     }
                 }
                 catch (Exception ex)
@@ -497,6 +518,7 @@ namespace Displicare
             _isPinned = !_isPinned;
             _settings.PinWindow = _isPinned;
             UpdatePinVisual();
+            ScheduleSave();
         }
 
         private void UpdatePinVisual()
@@ -515,9 +537,7 @@ namespace Displicare
 
         private void BtnRefresh_Click(object sender, RoutedEventArgs e)
         {
-            _engine.RefreshDisplays();
-            PopulateDisplays();
-            ApplyCurrentSettings();
+            HandleDisplayTopologyChange();
             TxtStatus.Text = "Refreshed " + _engine.Displays.Count + " connected displays.";
         }
 
@@ -533,14 +553,18 @@ namespace Displicare
 
         private void ResetAll()
         {
-            bool solarOn = _settings != null && _settings.SolarSyncEnabled;
-            _manualOverrideActive = solarOn;
+            // One click on the tray menu would otherwise wipe every screen's calibration, with no way back
+            const string question = "Reset brightness and colors on all screens to their defaults?\n\nThis clears each screen's calibration. Your custom presets and setups are kept.";
+            var answer = IsVisible
+                ? MessageBox.Show(this, question, "Displicare", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No)
+                : MessageBox.Show(question, "Displicare", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+            if (answer != MessageBoxResult.Yes) return;
+
+            if (_settings != null && _settings.SolarSyncEnabled) PauseSolarSync();
             if (_settings != null) _settings.ActivePreset = "Balanced";
-            if (BadgeSolarActive != null) BadgeSolarActive.Visibility = Visibility.Collapsed;
-            if (BtnResumeSolar != null) BtnResumeSolar.Visibility = solarOn ? Visibility.Visible : Visibility.Collapsed;
 
             _isUpdatingUi = true;
-            SliderBrightness.Value = 80;
+            SliderBrightness.Value = DefaultBrightness;
             SliderKelvin.Value = 6500;
             SliderRed.Value = 1.0;
             SliderGreen.Value = 1.0;
@@ -548,8 +572,9 @@ namespace Displicare
             SliderContrast.Value = 1.0;
             SliderGamma.Value = 1.0;
 
-            TxtBrightnessValue.Text = "80%";
+            TxtBrightnessValue.Text = DefaultBrightness + "%";
             TxtKelvinValue.Text = "6500 K";
+            UpdateSliderLabels();
             TxtRedVal.Text = "100%";
             TxtGreenVal.Text = "100%";
             TxtBlueVal.Text = "100%";
@@ -568,13 +593,13 @@ namespace Displicare
                 d.BlueGain = 1.0;
                 d.Contrast = 1.0;
                 d.Gamma = 1.0;
-                d.UserBrightness = 80;
+                d.UserBrightness = DefaultBrightness;
 
                 _engine.ResetGammaRamp(d);
                 if (d.SupportsDdcCi && d.UseHardwareBrightness)
                 {
                     // Queued like slider moves: each DDC/CI write takes tens of ms, too long for the UI thread
-                    _engine.QueueHardwareBrightness(d, 80);
+                    _engine.QueueHardwareBrightness(d, DefaultBrightness);
                 }
             }
 
@@ -584,7 +609,7 @@ namespace Displicare
             // Persist clean reset settings immediately
             if (_settings != null)
             {
-                _settings.Brightness = 80;
+                _settings.Brightness = DefaultBrightness;
                 _settings.ColorTemperature = 6500;
                 _settings.RedGain = 1.0;
                 _settings.GreenGain = 1.0;
@@ -592,6 +617,12 @@ namespace Displicare
                 _settings.Contrast = 1.0;
                 _settings.Gamma = 1.0;
                 SyncDisplayProfilesToSettings();
+                // Also the color kept for when warmth sync lets go, or the reset would come undone then
+                foreach (var d in _engine.Displays)
+                {
+                    var profile = ConfigManager.FindProfile(_settings.DisplayProfiles, d.MonitorKey, d.FriendlyName, d.DeviceName);
+                    if (profile != null) profile.ColorTemperature = 6500;
+                }
                 ConfigManager.Save(_settings);
             }
         }
@@ -739,7 +770,8 @@ namespace Displicare
                 }
             }
             int b = (int)SliderBrightness.Value;
-            string solarTag = (_settings != null && _settings.SolarSyncEnabled) ? " • 🌅 Solar Sync" : "";
+            string solarTag = (_settings != null && _settings.SolarSyncEnabled)
+                ? (_manualOverrideActive ? " • 🌅 Solar Sync paused" : " • 🌅 Solar Sync") : "";
             string txt = string.Format("Displicare: {0} ({1}%){2}", primaryName, b, solarTag);
             _tray.UpdateTooltip(txt);
             TxtStatus.Text = string.Format("Ready • {0} ({1}%){2} • {3} Display{4}", primaryName, b, solarTag, displays.Count, displays.Count == 1 ? "" : "s");

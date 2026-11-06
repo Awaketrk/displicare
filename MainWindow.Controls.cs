@@ -12,23 +12,39 @@ namespace Displicare
     /// <summary>Brightness and color controls: sliders, quick buttons, the display selection, and applying the values to the displays.</summary>
     public partial class MainWindow
     {
+        private const int DefaultBrightness = 100; // HDR on an OLED is normally run at full brightness
+
+        /// <summary>The brightness icon and warmth description for the sliders' values, however they got there.</summary>
+        private void UpdateSliderLabels()
+        {
+            int val = (int)SliderBrightness.Value;
+            if (val <= 30) TxtBrightnessIcon.Text = "🌙";
+            else if (val <= 70) TxtBrightnessIcon.Text = "🌅";
+            else TxtBrightnessIcon.Text = "☀️";
+
+            int k = (int)SliderKelvin.Value;
+            if (k <= 3000) TxtKelvinDesc.Text = "Candlelight Warmth (Deep sleep & relaxation)";
+            else if (k <= 4000) TxtKelvinDesc.Text = "Warm Amber (Nighttime blue light filter)";
+            else if (k <= 5500) TxtKelvinDesc.Text = "Soft Warm White (Gentle reading & browsing)";
+            else if (k <= 7000) TxtKelvinDesc.Text = "Natural Daylight (Standard sRGB reference)";
+            else if (k <= 8500) TxtKelvinDesc.Text = "Crisp Daylight (High energy focus)";
+            else TxtKelvinDesc.Text = "Ice Blue (Ultra-cool crisp whites)";
+
+            UpdatePresetStates();
+        }
+
         private void SliderBrightness_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
             if (_isUpdatingUi) return;
             int val = (int)SliderBrightness.Value;
             TxtBrightnessValue.Text = val + "%";
 
-            // Update icon
-            if (val <= 30) TxtBrightnessIcon.Text = "🌙";
-            else if (val <= 70) TxtBrightnessIcon.Text = "🌅";
-            else TxtBrightnessIcon.Text = "☀️";
+            UpdateSliderLabels();
 
             // Mark manual override if user moved slider while solar sync was running
             if (_settings != null && _settings.SolarSyncEnabled)
             {
-                _manualOverrideActive = true;
-                if (BadgeSolarActive != null) BadgeSolarActive.Visibility = Visibility.Collapsed;
-                if (BtnResumeSolar != null) BtnResumeSolar.Visibility = Visibility.Visible;
+                PauseSolarSync();
             }
 
             ApplyCurrentSettings();
@@ -42,13 +58,6 @@ namespace Displicare
             int k = (int)SliderKelvin.Value;
             TxtKelvinValue.Text = k + " K";
 
-            if (_settings != null && _settings.SolarSyncEnabled)
-            {
-                _manualOverrideActive = true;
-                if (BadgeSolarActive != null) BadgeSolarActive.Visibility = Visibility.Collapsed;
-                if (BtnResumeSolar != null) BtnResumeSolar.Visibility = Visibility.Visible;
-            }
-
             // Compute RGB for Swatch preview
             double r, g, b;
             MonitorEngine.KelvinToRgb(k, out r, out g, out b);
@@ -56,12 +65,7 @@ namespace Displicare
             swatchBrush.Freeze();
             BorderKelvinSwatch.Background = swatchBrush;
 
-            if (k <= 3000) TxtKelvinDesc.Text = "Candlelight Warmth (Deep sleep & relaxation)";
-            else if (k <= 4000) TxtKelvinDesc.Text = "Warm Amber (Nighttime blue light filter)";
-            else if (k <= 5500) TxtKelvinDesc.Text = "Soft Warm White (Gentle reading & browsing)";
-            else if (k <= 7000) TxtKelvinDesc.Text = "Natural Daylight (Standard sRGB reference)";
-            else if (k <= 8500) TxtKelvinDesc.Text = "Crisp Daylight (High energy focus)";
-            else TxtKelvinDesc.Text = "Ice Blue (Ultra-cool crisp whites)";
+            UpdateSliderLabels();
 
             ApplyCurrentSettings();
         }
@@ -115,6 +119,8 @@ namespace Displicare
                                     Math.Abs(d.Contrast - contrast) > 0.001 ||
                                     Math.Abs(d.Gamma - gamma) > 0.001;
 
+                bool brightnessChanged = forceColor || d.UserBrightness != brightness || d.CurrentBrightness != (uint)brightness;
+
                 d.UserBrightness = brightness;
                 d.ColorTemperature = kelvin;
                 d.RedGain = rGain;
@@ -125,7 +131,8 @@ namespace Displicare
 
                 if (d.SupportsDdcCi && d.UseHardwareBrightness)
                 {
-                    _engine.QueueHardwareBrightness(d, brightness);
+                    // Not on every color move: DDC/CI writes are slow and some monitors flash their OSD on each
+                    if (brightnessChanged) _engine.QueueHardwareBrightness(d, brightness);
 
                     if (colorChanged)
                     {
@@ -149,7 +156,8 @@ namespace Displicare
 
             // Persist into memory settings
             _settings.Brightness = brightness;
-            _settings.ColorTemperature = kelvin;
+            // Under warmth sync the slider holds the sun's color: saving it lost the user's as soon as brightness moved
+            if (!WarmthSyncDrivesColor) _settings.ColorTemperature = kelvin;
             _settings.RedGain = rGain;
             _settings.GreenGain = gGain;
             _settings.BlueGain = bGain;
@@ -157,6 +165,7 @@ namespace Displicare
             _settings.Gamma = gamma;
             _settings.SyncAllMonitors = ChkSyncDisplays.IsChecked == true;
 
+            UpdatePresetStates();
             SyncDisplayProfilesToSettings();
 
             // Debounced save: only writes to disk and registry after user stops adjusting
@@ -179,7 +188,8 @@ namespace Displicare
                 var prof = ConfigManager.FindProfile(_settings.DisplayProfiles, d.MonitorKey, d.FriendlyName, d.DeviceName);
                 if (prof == null) continue;
                 d.UserBrightness = prof.Brightness;
-                d.ColorTemperature = prof.ColorTemperature;
+                // Under warmth sync the screen follows the sun like the others; the profile keeps the user's color for later
+                d.ColorTemperature = WarmthSyncDrivesColor ? (int)SliderKelvin.Value : prof.ColorTemperature;
                 d.RedGain = prof.RedGain;
                 d.GreenGain = prof.GreenGain;
                 d.BlueGain = prof.BlueGain;
@@ -199,7 +209,7 @@ namespace Displicare
                 var prof = ConfigManager.FindProfile(_settings.DisplayProfiles, d.MonitorKey, d.FriendlyName, d.DeviceName);
                 if (prof == null)
                 {
-                    prof = new DisplayProfile();
+                    prof = new DisplayProfile { ColorTemperature = 6500 };
                     _settings.DisplayProfiles.Add(prof);
                 }
                 prof.MonitorKey = d.MonitorKey;
@@ -207,7 +217,7 @@ namespace Displicare
                 prof.DeviceName = d.DeviceName;
 
                 prof.Brightness = d.UserBrightness;
-                prof.ColorTemperature = d.ColorTemperature;
+                prof.ColorTemperature = KelvinToSave(WarmthSyncDrivesColor, prof.ColorTemperature, d.ColorTemperature);
                 prof.RedGain = d.RedGain;
                 prof.GreenGain = d.GreenGain;
                 prof.BlueGain = d.BlueGain;
@@ -278,37 +288,81 @@ namespace Displicare
                 if (monIdx >= 0 && monIdx < displays.Count)
                 {
                     var d = displays[monIdx];
+                    _selectedDisplayKey = DisplayKey(d);
                     string modeLabel = d.SupportsDdcCi ? "DDC/CI" : "GAMMA";
                     string resLabel = d.ResolutionWidth + "×" + d.ResolutionHeight;
                     TxtHardwareBadge.Text = modeLabel + " • " + resLabel;
-                    _isUpdatingUi = true;
-                    // Show actual hardware-read brightness for DDC/CI monitors
-                    SliderBrightness.Value = d.SupportsDdcCi && d.UseHardwareBrightness
-                        ? (int)d.CurrentBrightness
-                        : d.UserBrightness;
-                    TxtBrightnessValue.Text = (int)SliderBrightness.Value + "%";
-                    SliderKelvin.Value = d.ColorTemperature;
-                    SliderRed.Value = d.RedGain;
-                    SliderGreen.Value = d.GreenGain;
-                    SliderBlue.Value = d.BlueGain;
-                    SliderContrast.Value = d.Contrast;
-                    SliderGamma.Value = d.Gamma;
-
-                    // Keep value labels and swatch in sync with the newly selected display
-                    TxtKelvinValue.Text = d.ColorTemperature + " K";
-                    TxtRedVal.Text = (int)(d.RedGain * 100) + "%";
-                    TxtGreenVal.Text = (int)(d.GreenGain * 100) + "%";
-                    TxtBlueVal.Text = (int)(d.BlueGain * 100) + "%";
-                    TxtContrastVal.Text = d.Contrast.ToString("F2");
-                    TxtGammaVal.Text = d.Gamma.ToString("F2");
-                    double r, g, b;
-                    MonitorEngine.KelvinToRgb(d.ColorTemperature, out r, out g, out b);
-                    var swatchBrush = new SolidColorBrush(Color.FromRgb((byte)(r * 255), (byte)(g * 255), (byte)(b * 255)));
-                    swatchBrush.Freeze();
-                    BorderKelvinSwatch.Background = swatchBrush;
-                    _isUpdatingUi = false;
+                    ShowDisplayOnSliders(d, true);
                 }
             }
+        }
+
+        private string _selectedDisplayKey;
+
+        private static string DisplayKey(DisplayInfo d)
+        {
+            return d.MonitorKey ?? d.DeviceName;
+        }
+
+        /// <summary>
+        /// Which entry of the display list to select: 0 is "All Displays", then the screens. Sync on is always All. Sync off
+        /// keeps the selected screen, found by model because outputs change, else the main screen. Up to 2.5.2 sync off after
+        /// a restart selected All, so the next slider move put one screen's settings on every screen.
+        /// </summary>
+        internal static int PickDisplayEntry(IList<string> keys, int primaryIndex, string selectedKey, bool syncAll)
+        {
+            if (syncAll || keys.Count == 0) return 0;
+            for (int i = 0; i < keys.Count; i++)
+            {
+                if (string.Equals(keys[i], selectedKey, StringComparison.OrdinalIgnoreCase)) return i + 1;
+            }
+            return (primaryIndex >= 0 && primaryIndex < keys.Count ? primaryIndex : 0) + 1;
+        }
+
+        /// <summary>With sync off, puts the selected screen's values on the sliders (Solar Sync keeps its own brightness there).</summary>
+        private void ShowSelectedDisplayOnSliders()
+        {
+            if (_settings.SyncAllMonitors) return;
+            int idx = CmbDisplaySelect.SelectedIndex - 1;
+            var displays = _engine.Displays;
+            if (idx < 0 || idx >= displays.Count) return;
+            bool solarDrives = _settings.SolarSyncEnabled && !_manualOverrideActive;
+            ShowDisplayOnSliders(displays[idx], !solarDrives);
+        }
+
+        private void ShowDisplayOnSliders(DisplayInfo d, bool includeBrightness)
+        {
+            bool wasUpdating = _isUpdatingUi;
+            _isUpdatingUi = true;
+            if (includeBrightness)
+            {
+                // Show actual hardware-read brightness for DDC/CI monitors
+                SliderBrightness.Value = d.SupportsDdcCi && d.UseHardwareBrightness
+                    ? (int)d.CurrentBrightness
+                    : d.UserBrightness;
+                TxtBrightnessValue.Text = (int)SliderBrightness.Value + "%";
+            }
+            SliderKelvin.Value = d.ColorTemperature;
+            SliderRed.Value = d.RedGain;
+            SliderGreen.Value = d.GreenGain;
+            SliderBlue.Value = d.BlueGain;
+            SliderContrast.Value = d.Contrast;
+            SliderGamma.Value = d.Gamma;
+
+            // Keep value labels and swatch in sync with the newly selected display
+            TxtKelvinValue.Text = d.ColorTemperature + " K";
+            TxtRedVal.Text = (int)(d.RedGain * 100) + "%";
+            TxtGreenVal.Text = (int)(d.GreenGain * 100) + "%";
+            TxtBlueVal.Text = (int)(d.BlueGain * 100) + "%";
+            TxtContrastVal.Text = d.Contrast.ToString("F2");
+            TxtGammaVal.Text = d.Gamma.ToString("F2");
+            double r, g, b;
+            MonitorEngine.KelvinToRgb(d.ColorTemperature, out r, out g, out b);
+            var swatchBrush = new SolidColorBrush(Color.FromRgb((byte)(r * 255), (byte)(g * 255), (byte)(b * 255)));
+            swatchBrush.Freeze();
+            BorderKelvinSwatch.Background = swatchBrush;
+            UpdateSliderLabels();
+            _isUpdatingUi = wasUpdating;
         }
 
         private void ChkSyncDisplays_Checked(object sender, RoutedEventArgs e)

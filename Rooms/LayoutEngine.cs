@@ -549,7 +549,9 @@ namespace Displicare.Rooms
                 }
                 if (rc != 0)
                 {
-                    result.Message = "Windows refused the layout (error " + rc + ").";
+                    result.Message = rc == 5
+                        ? "Windows is blocking display changes right now (locked screen or an admin prompt). Try again once it's gone."
+                        : "Windows refused the layout (error " + rc + ").";
                     RoomLog.Write("Failed: " + result.Message);
                     return result;
                 }

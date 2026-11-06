@@ -813,12 +813,12 @@
                                         <TextBlock Text="Display Brightness" FontSize="14" FontWeight="SemiBold" Foreground="#FBF6F7" VerticalAlignment="Center"/>
                                     </StackPanel>
                                     <Border HorizontalAlignment="Right" Background="#2E2130" CornerRadius="8" Padding="10,2">
-                                        <TextBlock x:Name="TxtBrightnessValue" Text="80%" FontSize="18" FontWeight="Bold" Foreground="#FBBF24"/>
+                                        <TextBlock x:Name="TxtBrightnessValue" Text="100%" FontSize="18" FontWeight="Bold" Foreground="#FBBF24"/>
                                     </Border>
                                 </Grid>
 
                                 <!-- Brightness Slider -->
-                                <Slider x:Name="SliderBrightness" Style="{StaticResource AmberSlider}" Minimum="0" Maximum="100" Value="80"
+                                <Slider x:Name="SliderBrightness" Style="{StaticResource AmberSlider}" Minimum="0" Maximum="100" Value="100"
                                         ValueChanged="SliderBrightness_ValueChanged" Margin="0,4,0,12"/>
 
                                 <!-- Quick Jump Buttons -->
@@ -898,7 +898,7 @@
                                                 </Border>
                                             </StackPanel>
 
-                                            <Button x:Name="BtnResumeSolar" Content="↺ Re-Sync Sun" Style="{StaticResource PillButton}"
+                                            <Button x:Name="BtnResumeSolar" Content="↺ Re-Sync Sun" ToolTip="Solar Sync is paused by your change. It resumes by itself at the next sun phase, or now with this button." Style="{StaticResource PillButton}"
                                                     HorizontalAlignment="Right" Padding="8,2" FontSize="10" Visibility="Collapsed"
                                                     Click="BtnResumeSolar_Click"/>
                                         </Grid>
@@ -917,9 +917,9 @@
 
                                             <StackPanel Grid.Column="0" Margin="0,0,6,0">
                                                 <TextBlock Text="DAY BRIGHTNESS" FontSize="10" FontWeight="Bold" Foreground="#B3A3AE" Margin="0,0,0,3"/>
-                                                <Slider x:Name="SliderSolarDayB" Style="{StaticResource AmberSlider}" Minimum="50" Maximum="100" Value="85"
+                                                <Slider x:Name="SliderSolarDayB" Style="{StaticResource AmberSlider}" Minimum="50" Maximum="100" Value="100"
                                                         ValueChanged="SliderSolarLimits_ValueChanged"/>
-                                                <TextBlock x:Name="TxtSolarDayBVal" Text="85% Max Day" FontSize="10.5" Foreground="#DDD0D6" Margin="0,2,0,0"/>
+                                                <TextBlock x:Name="TxtSolarDayBVal" Text="100% Max Day" FontSize="10.5" Foreground="#DDD0D6" Margin="0,2,0,0"/>
                                             </StackPanel>
 
                                             <StackPanel Grid.Column="1" Margin="6,0,0,0">
@@ -1010,12 +1010,14 @@
                                         ValueChanged="SliderKelvin_ValueChanged" Margin="0,2,0,12"/>
 
                                 <!-- Quick Kelvin Buttons -->
-                                <UniformGrid Columns="4">
+                                <UniformGrid x:Name="GridQuickKelvin" Columns="4">
                                     <Button Content="2700K Warm" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickKelvin_Click" Tag="2700"/>
                                     <Button Content="3400K Night" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickKelvin_Click" Tag="3400"/>
                                     <Button Content="6500K Day" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickKelvin_Click" Tag="6500"/>
                                     <Button Content="8500K Ice" Style="{StaticResource PillButton}" Margin="2,0" Click="BtnQuickKelvin_Click" Tag="8500"/>
                                 </UniformGrid>
+                                <TextBlock x:Name="TxtKelvinLocked" Visibility="Collapsed" FontSize="11" Foreground="#FF8A6B" TextWrapping="Wrap" LineHeight="16" Margin="0,8,0,0"
+                                           Text="Warmth sync is controlling color temperature. Turn it off in Solar Sync to set it yourself."/>
                             </StackPanel>
                         </Border>
 
@@ -1078,8 +1080,11 @@
                     <StackPanel>
                         <TextBlock Text="Quick Color Profiles" FontSize="13" FontWeight="SemiBold" Foreground="#FBF6F7" Margin="0,2,0,8"/>
 
+                        <TextBlock x:Name="TxtPresetsLocked" Visibility="Collapsed" FontSize="11" Foreground="#FF8A6B" TextWrapping="Wrap" LineHeight="16" Margin="3,0,3,10"
+                                   Text="Warmth sync is controlling color temperature. Turn it off in Solar Sync to use presets."/>
+
                         <!-- Grid of 6 Presets -->
-                        <UniformGrid Columns="2" Margin="0,0,0,12">
+                        <UniformGrid x:Name="GridBuiltInPresets" Columns="2" Margin="0,0,0,12">
                             <!-- Preset 1: Balanced -->
                             <Button Margin="3" Style="{StaticResource PillButton}" Padding="10,12" Click="BtnPreset_Click" Tag="Balanced">
                                 <StackPanel HorizontalAlignment="Left">

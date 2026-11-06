@@ -231,6 +231,16 @@ namespace Displicare
         /// A display answered DDC/CI late (common right after sign-in or an HDR switch). Set to hardware brightness, it
         /// hands dimming from the software dimmer to its backlight; set to software, its card gets the DDC/CI option back.
         /// </summary>
+        /// <summary>A monitor that used to answer DDC/CI missed every retry: software dimming takes over and its card says so.</summary>
+        private void OnDdcLost(DisplayInfo d)
+        {
+            if (_hardwareTestRunning || !_engine.Displays.Contains(d)) return;
+            _engine.ApplyColorAndGamma(d);
+            PopulateDisplays();
+            BuildMonitorRows();
+            BuildDisplayHardwareCards();
+        }
+
         private void OnDdcRecovered(DisplayInfo d)
         {
             if (_hardwareTestRunning || !_engine.Displays.Contains(d)) return;
@@ -288,10 +298,12 @@ namespace Displicare
                 RestoreDisplayProfiles(); // a screen a room switch just turned on gets its own settings
                 PopulateDisplays();
                 RoomsDisplaysChanged();
+                ShowSelectedDisplayOnSliders();
 
                 RebuildRamps();
                 ReassertDisplayState();
                 StartHdrRecheck();
+                UpdateSolarCircadian(false); // a screen just back gets the sun's level now, not at the next tick
             }
             catch { }
         }
@@ -307,6 +319,12 @@ namespace Displicare
                 if (!d.SupportsDdcCi || !d.UseHardwareBrightness || _engine.HasCustomGammaOrColor(d))
                 {
                     _engine.ApplyColorAndGamma(d);
+                }
+                else if (d.LastAppliedRamp != null)
+                {
+                    // On its backlight with neutral colors now, but our ramp is still there (software dimming from a
+                    // missed DDC/CI read, say): the watchdog skips neutral displays, so it would stay until a resync
+                    _engine.ResetGammaRamp(d);
                 }
             }
         }
