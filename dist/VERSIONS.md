@@ -153,3 +153,13 @@ Versions before 2.1.0 were private test builds (1.x under the earlier name Lumin
   - **Portable Package**: `Displicare-v2.5.3-Portable.zip` (216.9 KB)
     - SHA256: `7BE04308DE60E8599A19273B3879BBF06B71AFD1FFDE0E73E04ED722F5E4B0CA`
 - **Notes**: A Solar Sync pause ends at the next sun phase and survives a restart; your colors are kept apart from the sun's and come back when warmth sync or Solar Sync turns off; the active preset is highlighted, and presets lock under warmth sync; a monitor that answered DDC/CI stays on its backlight through HDMI handshakes instead of stacking software dimming; sync off keeps the selected screen after a restart; default brightness is 100; Reset All asks first; uninstalling removes the startup entry.
+
+### Version 2.5.4 Release
+- **Release Date**: 2026-11-14 22:34:03
+- **Assembly Version**: 2.5.4.0
+- **Packages in dist/v2.5.4/** (built by GitHub Actions, also on the GitHub Release):
+  - **Setup Installer**: `Displicare-v2.5.4-Setup.exe` (2.14 MB)
+    - SHA256: `4D68E6C72BF08063FBC8543FC018F92BCF2B359B0BB09176A1F0B052DF2746FC`
+  - **Portable Package**: `Displicare-v2.5.4-Portable.zip` (221 KB)
+    - SHA256: `177D770EC4F0CD2D7A4C5E99FC7CC2D6BBF20E85D31450188841F6A19D01F425`
+- **Notes**: The backlight is written again after standby and when a screen appears, only to a monitor that still shows Displicare's value; display changes are read in the background so the window no longer freezes during a TV handshake; setup hotkeys move to Ctrl+Alt+Shift+digit (Ctrl+Alt is AltGr and took symbols from typing); Solar Sync takes its location from the exact time zone and its sun times from the local day; two monitors of one model keep their own settings; second-screen apps aren't taken for streams; an update no longer turns Start with Windows back on.
