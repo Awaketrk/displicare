@@ -19,68 +19,84 @@ namespace Displicare
 
     public static class SolarEngine
     {
+        // A city for each common Windows time zone, by its exact id. Up to 2.5.3 ids were matched by a word in them, so
+        // "AUS Eastern Standard Time" (Sydney) got New York and "Central Asia Standard Time" got Chicago: Solar Sync
+        // dimmed the screen at midday there.
+        private static readonly System.Collections.Generic.Dictionary<string, double[]> ZoneCoordinates =
+            new System.Collections.Generic.Dictionary<string, double[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "Turkey Standard Time", new[] { 41.01, 28.97 } },                 // Istanbul
+            { "Hawaiian Standard Time", new[] { 21.31, -157.86 } },             // Honolulu
+            { "Alaskan Standard Time", new[] { 61.22, -149.90 } },              // Anchorage
+            { "Pacific Standard Time", new[] { 37.77, -122.41 } },              // San Francisco
+            { "Pacific Standard Time (Mexico)", new[] { 32.51, -117.04 } },     // Tijuana
+            { "US Mountain Standard Time", new[] { 33.45, -112.07 } },          // Phoenix
+            { "Mountain Standard Time", new[] { 39.73, -104.99 } },             // Denver
+            { "Mountain Standard Time (Mexico)", new[] { 24.14, -110.31 } },    // La Paz
+            { "Central Standard Time", new[] { 41.87, -87.62 } },               // Chicago
+            { "Central Standard Time (Mexico)", new[] { 19.43, -99.13 } },      // Mexico City
+            { "Canada Central Standard Time", new[] { 50.45, -104.62 } },       // Regina
+            { "Central America Standard Time", new[] { 14.63, -90.51 } },       // Guatemala City
+            { "Eastern Standard Time", new[] { 40.71, -74.00 } },               // New York
+            { "US Eastern Standard Time", new[] { 39.77, -86.16 } },            // Indianapolis
+            { "Eastern Standard Time (Mexico)", new[] { 21.16, -86.85 } },      // Cancun
+            { "SA Pacific Standard Time", new[] { 4.71, -74.07 } },             // Bogota
+            { "Atlantic Standard Time", new[] { 44.65, -63.57 } },              // Halifax
+            { "Pacific SA Standard Time", new[] { -33.45, -70.67 } },           // Santiago
+            { "E. South America Standard Time", new[] { -23.55, -46.63 } },     // Sao Paulo
+            { "Argentina Standard Time", new[] { -34.60, -58.38 } },            // Buenos Aires
+            { "GMT Standard Time", new[] { 51.50, -0.12 } },                    // London
+            { "Greenwich Standard Time", new[] { 64.15, -21.94 } },             // Reykjavik
+            { "W. Europe Standard Time", new[] { 50.11, 8.68 } },               // Frankfurt
+            { "Romance Standard Time", new[] { 48.86, 2.35 } },                 // Paris
+            { "Central Europe Standard Time", new[] { 50.08, 14.44 } },         // Prague
+            { "Central European Standard Time", new[] { 52.23, 21.01 } },       // Warsaw
+            { "GTB Standard Time", new[] { 37.98, 23.73 } },                    // Athens
+            { "FLE Standard Time", new[] { 60.17, 24.94 } },                    // Helsinki
+            { "E. Europe Standard Time", new[] { 47.01, 28.86 } },              // Chisinau
+            { "Israel Standard Time", new[] { 31.77, 35.21 } },                 // Jerusalem
+            { "Egypt Standard Time", new[] { 30.04, 31.24 } },                  // Cairo
+            { "South Africa Standard Time", new[] { -26.20, 28.05 } },          // Johannesburg
+            { "Russian Standard Time", new[] { 55.75, 37.62 } },                // Moscow
+            { "Arab Standard Time", new[] { 24.71, 46.68 } },                   // Riyadh
+            { "Arabian Standard Time", new[] { 25.20, 55.27 } },                // Dubai
+            { "India Standard Time", new[] { 28.61, 77.21 } },                  // New Delhi
+            { "Central Asia Standard Time", new[] { 42.87, 74.59 } },           // Bishkek
+            { "SE Asia Standard Time", new[] { 13.76, 100.50 } },               // Bangkok
+            { "China Standard Time", new[] { 39.90, 116.40 } },                 // Beijing
+            { "Singapore Standard Time", new[] { 1.35, 103.82 } },              // Singapore
+            { "W. Australia Standard Time", new[] { -31.95, 115.86 } },         // Perth
+            { "Korea Standard Time", new[] { 37.57, 126.98 } },                 // Seoul
+            { "Tokyo Standard Time", new[] { 35.67, 139.65 } },                 // Tokyo
+            { "AUS Central Standard Time", new[] { -12.46, 130.84 } },          // Darwin
+            { "Cen. Australia Standard Time", new[] { -34.93, 138.60 } },       // Adelaide
+            { "E. Australia Standard Time", new[] { -27.47, 153.03 } },         // Brisbane
+            { "AUS Eastern Standard Time", new[] { -33.87, 151.21 } },          // Sydney
+            { "Tasmania Standard Time", new[] { -42.88, 147.33 } },             // Hobart
+            { "West Pacific Standard Time", new[] { 13.44, 144.79 } },          // Guam
+            { "Central Pacific Standard Time", new[] { -9.43, 159.95 } },       // Honiara
+            { "New Zealand Standard Time", new[] { -36.85, 174.76 } },          // Auckland
+        };
+
         public static void GetDefaultCoordinates(out double lat, out double lon)
         {
-            string tzId = TimeZoneInfo.Local.Id;
+            CoordinatesFor(TimeZoneInfo.Local.Id, TimeZoneInfo.Local.BaseUtcOffset, out lat, out lon);
+        }
 
-            if (tzId.IndexOf("Turkey", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                tzId.IndexOf("Istanbul", StringComparison.OrdinalIgnoreCase) >= 0)
+        /// <summary>
+        /// Where to take the sun from for a Windows time zone: its city if the zone is in the list, else the middle of the
+        /// zone (15 degrees per hour from UTC) at 40° north.
+        /// </summary>
+        internal static void CoordinatesFor(string timeZoneId, TimeSpan utcOffset, out double lat, out double lon)
+        {
+            double[] place;
+            if (timeZoneId != null && ZoneCoordinates.TryGetValue(timeZoneId, out place))
             {
-                lat = 41.01;
-                lon = 28.97;
+                lat = place[0];
+                lon = place[1];
                 return;
             }
-            if (tzId.IndexOf("Eastern", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                lat = 40.71;
-                lon = -74.00;
-                return;
-            }
-            if (tzId.IndexOf("Pacific", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                lat = 37.77;
-                lon = -122.41;
-                return;
-            }
-            if (tzId.IndexOf("Central", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                tzId.IndexOf("Europe", StringComparison.OrdinalIgnoreCase) < 0)
-            {
-                lat = 41.87;
-                lon = -87.62;
-                return;
-            }
-            if (tzId.IndexOf("Mountain", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                lat = 39.73;
-                lon = -104.99;
-                return;
-            }
-            if (tzId.IndexOf("GMT", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                tzId.IndexOf("Greenwich", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                tzId.IndexOf("London", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                lat = 51.50;
-                lon = -0.12;
-                return;
-            }
-            if (tzId.IndexOf("W. Europe", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                tzId.IndexOf("Berlin", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                tzId.IndexOf("Paris", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                lat = 50.11;
-                lon = 8.68;
-                return;
-            }
-            if (tzId.IndexOf("Tokyo", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                tzId.IndexOf("Japan", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                lat = 35.67;
-                lon = 139.65;
-                return;
-            }
-
-            // General fallback from UTC offset: 15 degrees per timezone hour
-            lon = TimeZoneInfo.Local.BaseUtcOffset.TotalHours * 15.0;
+            lon = Math.Max(-180.0, Math.Min(180.0, utcOffset.TotalHours * 15.0));
             lat = 40.0;
         }
 
@@ -117,7 +133,20 @@ namespace Displicare
         public static void CalculateSunTimes(double lat, double lon, DateTime dateLocal,
             out DateTime sunriseLocal, out DateTime solarNoonLocal, out DateTime sunsetLocal)
         {
-            DateTime utcDate = dateLocal.ToUniversalTime().Date;
+            CalculateSunTimes(lat, lon, dateLocal, TimeZoneInfo.Local, out sunriseLocal, out solarNoonLocal, out sunsetLocal);
+        }
+
+        /// <summary>
+        /// Sunrise, solar noon and sunset of the local day <paramref name="dateLocal"/> falls on, in
+        /// <paramref name="zone"/>'s time. Up to 2.5.3 the day was taken in UTC, so for the hours when UTC is on another
+        /// date (evenings in America, mornings in Asia) these were the day before's or after's and the day bar read 0% or
+        /// 100% with the sun up.
+        /// </summary>
+        internal static void CalculateSunTimes(double lat, double lon, DateTime dateLocal, TimeZoneInfo zone,
+            out DateTime sunriseLocal, out DateTime solarNoonLocal, out DateTime sunsetLocal)
+        {
+            // The local calendar day, as a UTC midnight to count minutes from
+            DateTime utcDate = new DateTime(dateLocal.Year, dateLocal.Month, dateLocal.Day, 0, 0, 0, DateTimeKind.Utc);
             int d = utcDate.DayOfYear;
             double gamma = 2.0 * Math.PI / 365.0 * (d - 1);
 
@@ -153,7 +182,16 @@ namespace Displicare
                 DateTime solarNoonUtc = utcDate.AddMinutes(solarNoonUtcMinutes);
                 DateTime sunsetUtc = utcDate.AddMinutes(sunsetUtcMinutes);
 
-                TimeZoneInfo tz = TimeZoneInfo.Local;
+                TimeZoneInfo tz = zone ?? TimeZoneInfo.Local;
+                // Next to the date line the zone's clock and its longitude disagree by a day (UTC+14 at 157° west):
+                // keep solar noon on the day asked for
+                int offBy = (dateLocal.Date - TimeZoneInfo.ConvertTimeFromUtc(solarNoonUtc, tz).Date).Days;
+                if (offBy != 0)
+                {
+                    sunriseUtc = sunriseUtc.AddDays(offBy);
+                    solarNoonUtc = solarNoonUtc.AddDays(offBy);
+                    sunsetUtc = sunsetUtc.AddDays(offBy);
+                }
                 sunriseLocal = TimeZoneInfo.ConvertTimeFromUtc(sunriseUtc, tz);
                 solarNoonLocal = TimeZoneInfo.ConvertTimeFromUtc(solarNoonUtc, tz);
                 sunsetLocal = TimeZoneInfo.ConvertTimeFromUtc(sunsetUtc, tz);

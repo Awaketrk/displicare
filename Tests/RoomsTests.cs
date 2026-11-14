@@ -294,7 +294,39 @@ namespace Displicare.Tests
         {
             Assert.Equal("Ctrl+Alt+1", Hotkey.Normalize("ctrl+alt+1"), "normalize");
             Assert.True(Hotkey.Normalize("Shift+A") == null, "shift only is not a hotkey");
-            Assert.Equal("Ctrl+Alt+2", Hotkey.NextFree(new[] { "Ctrl+Alt+0", "Ctrl+Alt+1", null }), "next free");
+            Assert.Equal("Ctrl+Alt+Shift+2", Hotkey.NextFree(new[] { "Ctrl+Alt+Shift+0", "ctrl+shift+alt+1", null }), "next free");
+            Assert.Equal("Ctrl+Alt+Shift+1", Hotkey.NextFree(new[] { "Ctrl+Alt+1" }), "new hotkeys have Shift, whatever is on Ctrl+Alt");
+        }
+
+        [Test]
+        public static void SetupHotkeysStayOffAltGr()
+        {
+            // Regression (2.5.3): Ctrl+Alt+1..5 are AltGr+1..5, which type > £ # $ ½ on a Turkish keyboard (and } on 0), so
+            // the default hotkeys took those symbols away everywhere
+            Assert.True(Hotkey.IsAltGrDigit("ctrl+alt+3"), "Ctrl+Alt+digit is AltGr+digit");
+            Assert.True(!Hotkey.IsAltGrDigit("Ctrl+Alt+Shift+3"), "with Shift it isn't");
+            Assert.True(!Hotkey.IsAltGrDigit("Ctrl+Alt+Up"), "arrows type nothing");
+            Assert.True(!Hotkey.IsAltGrDigit("Ctrl+3") && !Hotkey.IsAltGrDigit("") && !Hotkey.IsAltGrDigit(null), "not AltGr");
+            Assert.Equal("Ctrl+Alt+Shift+0", new AppSettings().RoomHomeHotkey, "safe hotkey default");
+
+            // Settings saved by 2.5.3: moved once
+            var s = ConfigManager.Parse("{\"RoomHomeHotkey\":\"Ctrl+Alt+0\",\"KnownScreens\":[{\"Key\":\"GBT3214\"},{\"Key\":\"GSM82CD\"}]," +
+                "\"Setups\":[{\"Id\":\"a\",\"Name\":\"Desk\",\"Screens\":[\"GBT3214\"],\"Hotkey\":\"Ctrl+Alt+1\"}," +
+                "{\"Id\":\"b\",\"Name\":\"TV\",\"Screens\":[\"GSM82CD\"],\"Hotkey\":\"Ctrl+Alt+2\"}," +
+                "{\"Id\":\"c\",\"Name\":\"Both\",\"Screens\":[\"GBT3214\",\"GSM82CD\"],\"Hotkey\":\"Ctrl+Alt+Shift+2\"}," +
+                "{\"Id\":\"d\",\"Name\":\"Mirror\",\"Screens\":[\"GBT3214\"],\"Hotkey\":\"Ctrl+Win+F5\"}]}");
+            Assert.Equal("Ctrl+Alt+Shift+0", s.RoomHomeHotkey, "safe hotkey moved");
+            Assert.Equal("Ctrl+Alt+Shift+1", s.Setups[0].Hotkey, "setup hotkey moved");
+            Assert.Equal("Ctrl+Alt+2", s.Setups[1].Hotkey, "kept: its Shift form belongs to another setup");
+            Assert.Equal("Ctrl+Alt+Shift+2", s.Setups[2].Hotkey, "already on Shift");
+            Assert.Equal("Ctrl+Win+F5", s.Setups[3].Hotkey, "other hotkeys untouched");
+            Assert.True(s.HotkeysOffAltGr, "marked as done");
+
+            // Afterwards a Ctrl+Alt+digit chosen on purpose stays
+            s = ConfigManager.Parse("{\"HotkeysOffAltGr\":true,\"RoomHomeHotkey\":\"Ctrl+Alt+0\",\"KnownScreens\":[{\"Key\":\"GBT3214\"}]," +
+                "\"Setups\":[{\"Id\":\"a\",\"Name\":\"Desk\",\"Screens\":[\"GBT3214\"],\"Hotkey\":\"Ctrl+Alt+1\"}]}");
+            Assert.Equal("Ctrl+Alt+0", s.RoomHomeHotkey, "safe hotkey kept");
+            Assert.Equal("Ctrl+Alt+1", s.Setups[0].Hotkey, "setup hotkey kept");
         }
 
         // ---------------------------------------------------------------- fixes from the first DAMEPC test
@@ -417,7 +449,7 @@ namespace Displicare.Tests
             var s = ConfigManager.Parse("{\"Brightness\":70}");
             Assert.True(!s.RoomsEnabled, "off by default");
             Assert.Equal(0, s.Rooms.Count, "no rooms");
-            Assert.Equal("Ctrl+Alt+0", s.RoomHomeHotkey, "home hotkey default");
+            Assert.Equal("Ctrl+Alt+Shift+0", s.RoomHomeHotkey, "home hotkey default");
             Assert.True(s.RoomController && s.RoomStreamScreensOff && s.RoomShowOverlay, "new options on for older settings");
         }
 
@@ -589,6 +621,51 @@ namespace Displicare.Tests
             t.OutputTechnology = DisplayConfigApi.OUTPUT_TECHNOLOGY_INDIRECT_VIRTUAL;
             t.Active = false;
             Assert.True(!RoomManager.IsStreamTarget(t), "inactive");
+        }
+
+        [Test]
+        public static void ATabletAsAnExtraMonitorIsNotAStream()
+        {
+            // Regression (2.5.3): every virtual display counted as a stream, so the real screens went dark
+            var t = new TargetInfo();
+            t.Active = true;
+            t.OutputTechnology = DisplayConfigApi.OUTPUT_TECHNOLOGY_INDIRECT_VIRTUAL;
+            t.Identity = new DisplayIdentity();
+            t.Identity.AdapterPath = @"\\?\ROOT#DISPLAY#0000#{5b45201d-f2f2-4f3b-85bb-30ff1f953599}";
+            t.Identity.FriendlyName = "SudoMaker Virtual Display";
+            Assert.True(RoomManager.IsStreamTarget(t), "a stream's display");
+            t.Identity.FriendlyName = "spacedesk Display";
+            Assert.True(!RoomManager.IsStreamTarget(t), "spacedesk");
+            t.Identity.FriendlyName = "SuperDisplay";
+            Assert.True(!RoomManager.IsStreamTarget(t), "SuperDisplay");
+
+            t.Identity.FriendlyName = "Desk Dummy Monitor";
+            Assert.True(RoomManager.IsStreamTarget(t, new List<string>()), "unknown: still a stream");
+            Assert.True(!RoomManager.IsStreamTarget(t, new List<string> { " dummy " }), "named in RoomStreamIgnore");
+            Assert.True(RoomManager.IsStreamTarget(t, new List<string> { "", null }), "empty entries match nothing");
+        }
+
+        [Test]
+        public static void APortraitScreenKeepsItsSizeOnItsSide()
+        {
+            // Regression (2.5.3): a screen at "Native" was sized from its EDID, which only knows it lying down
+            DisplayMode? native = new DisplayMode(2560, 1440, 144);
+            int w, h;
+            var portrait = new SetupScreen { Key = "DEL1234", PlacedWidth = 1440, PlacedHeight = 2560 };
+            RoomManager.SizeIn(portrait, native, out w, out h);
+            Assert.True(w == 1440 && h == 2560, "placed on its side: " + w + "x" + h);
+
+            var unplaced = new SetupScreen { Key = "DEL1234" };
+            RoomManager.SizeIn(unplaced, native, out w, out h);
+            Assert.True(w == 2560 && h == 1440, "not placed yet: native");
+
+            var otherSize = new SetupScreen { Key = "DEL1234", PlacedWidth = 1920, PlacedHeight = 1080 };
+            RoomManager.SizeIn(otherSize, native, out w, out h);
+            Assert.True(w == 2560 && h == 1440, "placed at another size, now native");
+
+            var pinned = new SetupScreen { Key = "DEL1234", Width = 1920, Height = 1080, PlacedWidth = 1440, PlacedHeight = 2560 };
+            RoomManager.SizeIn(pinned, native, out w, out h);
+            Assert.True(w == 1920 && h == 1080, "a chosen resolution wins");
         }
 
         [Test]

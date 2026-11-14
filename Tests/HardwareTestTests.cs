@@ -17,6 +17,16 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void BacklightThatCouldNotBeReadGoesBackToWhatWasSet()
+        {
+            // Regression (2.5.3): a monitor that missed the read before the test was left at the test's 100%
+            Assert.Equal(40u, HardwareTest.AssumedBacklight(true, 40), "hardware mode: the brightness Displicare set");
+            Assert.Equal(100u, HardwareTest.AssumedBacklight(false, 40), "software mode keeps the backlight at full");
+            Assert.Equal(100u, HardwareTest.AssumedBacklight(true, 150), "never above 100");
+            Assert.Equal(0u, HardwareTest.AssumedBacklight(true, -5), "never below 0");
+        }
+
+        [Test]
         public static void PlanSkipsHardwareCasesWithoutDdc()
         {
             var plan = HardwareTest.PlanFor(false);

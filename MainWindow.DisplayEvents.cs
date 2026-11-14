@@ -49,6 +49,10 @@ namespace Displicare
                 handled = true;
                 return new IntPtr(1);
             }
+            else if (msg == WM_POWERBROADCAST && wParam.ToInt64() == PBT_POWERSETTINGCHANGE && lParam != IntPtr.Zero)
+            {
+                OnPowerSetting(lParam);
+            }
             else if (msg == WM_DISPLAYCHANGE)
             {
                 Dispatcher.BeginInvoke((Action)(() =>
@@ -282,19 +286,67 @@ namespace Displicare
             if (_settings.HardwareBrightnessRestored) ScheduleSave();
         }
 
+        private bool _displayRefreshRunning;
+        private bool _displayRefreshAgain;
+        private bool _forceSolarAfterRefresh;
+        private bool _announceRefresh;
+
+        /// <summary>
+        /// Reads the screens again after a display change and puts everything back on them. The reading runs off the UI
+        /// thread: each monitor is asked over DDC/CI, and one that doesn't answer (waking up, an HDMI handshake that
+        /// resets every display) takes its whole timeout, several times in a row. Up to 2.5.3 the window, the tray menu
+        /// and the hotkeys froze for that long.
+        /// </summary>
         private void HandleDisplayTopologyChange()
         {
+            if (_isExited) return;
             if (_hardwareTestRunning)
             {
                 // Refreshing would swap out the display objects under the test; stop it and refresh afterwards
-                _topologyChangedDuringTest = true;
-                if (_hardwareTest != null) _hardwareTest.NoteInterruption("the display configuration changed");
-                if (_hardwareTestCts != null) _hardwareTestCts.Cancel();
+                StopHardwareTestForDisplayChange();
+                return;
+            }
+            if (_displayRefreshRunning)
+            {
+                // Another change while the screens are being read: read them once more afterwards
+                _displayRefreshAgain = true;
+                return;
+            }
+            _displayRefreshRunning = true;
+            var before = DisplayKeys(_engine.Displays);
+            System.Threading.Tasks.Task.Run((Action)_engine.RefreshDisplays).ContinueWith(t =>
+            {
+                var error = t.Exception;
+                Dispatcher.BeginInvoke((Action)(() => DisplaysRefreshed(before, error)));
+            });
+        }
+
+        private void StopHardwareTestForDisplayChange()
+        {
+            _topologyChangedDuringTest = true;
+            if (_hardwareTest != null) _hardwareTest.NoteInterruption("the display configuration changed");
+            if (_hardwareTestCts != null) _hardwareTestCts.Cancel();
+        }
+
+        private void DisplaysRefreshed(List<string> before, Exception error)
+        {
+            _displayRefreshRunning = false;
+            if (_isExited) return;
+            if (error != null) App.Log("Display refresh error: " + error);
+            if (_hardwareTestRunning)
+            {
+                // The test started while the screens were being read, and its display objects were just replaced
+                _displayRefreshAgain = false;
+                StopHardwareTestForDisplayChange();
                 return;
             }
             try
             {
-                _engine.RefreshDisplays();
+                // First, so that nothing below can skip it. Only when a screen is there that wasn't: a monitor can come
+                // back without Windows reporting the display on, but an HDR switch or a game changing the resolution
+                // isn't a reason to write to every monitor
+                if (ScreenAppeared(before, DisplayKeys(_engine.Displays))) ScheduleBacklightRewrite();
+
                 RestoreDisplayProfiles(); // a screen a room switch just turned on gets its own settings
                 PopulateDisplays();
                 RoomsDisplaysChanged();
@@ -303,9 +355,227 @@ namespace Displicare
                 RebuildRamps();
                 ReassertDisplayState();
                 StartHdrRecheck();
-                UpdateSolarCircadian(false); // a screen just back gets the sun's level now, not at the next tick
+                bool forceSolar = _forceSolarAfterRefresh && !_manualOverrideActive;
+                _forceSolarAfterRefresh = false;
+                UpdateSolarCircadian(forceSolar); // a screen just back gets the sun's level now, not at the next tick
+                if (_announceRefresh)
+                {
+                    _announceRefresh = false;
+                    TxtStatus.Text = "Refreshed " + _engine.Displays.Count + " connected displays.";
+                }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                App.Log("Display change error: " + ex);
+            }
+
+            if (_displayRefreshAgain)
+            {
+                _displayRefreshAgain = false;
+                HandleDisplayTopologyChange();
+            }
+        }
+
+        private static List<string> DisplayKeys(IList<DisplayInfo> displays)
+        {
+            var keys = new List<string>();
+            foreach (var d in displays) keys.Add(DisplayKey(d));
+            return keys;
+        }
+
+        /// <summary>Whether a screen is on now that wasn't before (by model, since outputs change hands).</summary>
+        internal static bool ScreenAppeared(IList<string> before, IList<string> after)
+        {
+            foreach (var key in after)
+            {
+                bool wasThere = false;
+                foreach (var old in before)
+                {
+                    if (string.Equals(old, key, StringComparison.OrdinalIgnoreCase)) { wasThere = true; break; }
+                }
+                if (!wasThere) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Runs a step at each of a list of seconds after <see cref="Start"/> (1 and 4, or 2, 6 and 15); starting again
+        /// begins from the first. The step returns false to stop early.
+        /// </summary>
+        private sealed class SteppedTimer
+        {
+            private readonly int[] _seconds;
+            private readonly Func<bool> _step;
+            private readonly System.Windows.Threading.DispatcherTimer _timer = new System.Windows.Threading.DispatcherTimer();
+            private int _index;
+
+            public SteppedTimer(int[] seconds, Func<bool> step)
+            {
+                _seconds = seconds;
+                _step = step;
+                _timer.Tick += (s, ev) => Tick();
+            }
+
+            public void Start()
+            {
+                _timer.Stop();
+                _index = 0;
+                _timer.Interval = TimeSpan.FromSeconds(SecondsBeforeStep(_seconds, 0));
+                _timer.Start();
+            }
+
+            public void Stop()
+            {
+                _timer.Stop();
+            }
+
+            private void Tick()
+            {
+                bool goOn = _step();
+                _index++;
+                int wait = SecondsBeforeStep(_seconds, _index);
+                if (!goOn || wait < 0)
+                {
+                    _timer.Stop();
+                    return;
+                }
+                _timer.Interval = TimeSpan.FromSeconds(wait);
+            }
+        }
+
+        /// <summary>How long to wait before a step, counted from the one before it; -1 when there is no such step.</summary>
+        internal static int SecondsBeforeStep(int[] seconds, int step)
+        {
+            if (seconds == null || step < 0 || step >= seconds.Length) return -1;
+            return step == 0 ? seconds[0] : seconds[step] - seconds[step - 1];
+        }
+
+        private const int WM_POWERBROADCAST = 0x0218;
+        private const long PBT_POWERSETTINGCHANGE = 0x8013;
+        private const int DisplayStateOff = 0, DisplayStateUnknown = -1;
+        private static readonly Guid GuidConsoleDisplayState = new Guid("6FE69556-704A-47A0-8F24-C28D936FDA47");
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr RegisterPowerSettingNotification(IntPtr hRecipient, ref Guid powerSettingGuid, int flags);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+        private static extern bool UnregisterPowerSettingNotification(IntPtr handle);
+
+        // How long after a wake the backlight is written again: the monitor may still be coming up for the first ones
+        internal static readonly int[] BacklightRewriteSeconds = { 2, 6, 15 };
+        // While Solar Sync drives, this often too: a monitor switched off with its own button comes back without Windows noticing
+        private static readonly TimeSpan SolarBacklightRewriteEvery = TimeSpan.FromMinutes(10);
+
+        private IntPtr _displayStateNotification = IntPtr.Zero;
+        private int _displayState = DisplayStateUnknown;
+        private SteppedTimer _backlightRewrite;
+        private DateTime _lastBacklightRewriteUtc = DateTime.UtcNow;
+
+        private void WatchScreenPower(IntPtr hwnd)
+        {
+            var guid = GuidConsoleDisplayState;
+            _displayStateNotification = RegisterPowerSettingNotification(hwnd, ref guid, 0); // 0 = DEVICE_NOTIFY_WINDOW_HANDLE
+            if (_displayStateNotification == IntPtr.Zero) App.Log("Screen power notification not available");
+        }
+
+        private void StopWatchingScreenPower()
+        {
+            if (_backlightRewrite != null) _backlightRewrite.Stop();
+            if (_hdrRecheck != null) _hdrRecheck.Stop();
+            if (_displayStateNotification != IntPtr.Zero)
+            {
+                try { UnregisterPowerSettingNotification(_displayStateNotification); } catch { }
+                _displayStateNotification = IntPtr.Zero;
+            }
+        }
+
+        /// <summary>
+        /// Off to on or dimmed. Not the first report, which Windows sends on registering and which is just the current state.
+        /// </summary>
+        internal static bool ScreensCameOn(int previous, int state)
+        {
+            return previous == DisplayStateOff && state != DisplayStateOff;
+        }
+
+        private void OnPowerSetting(IntPtr setting)
+        {
+            try
+            {
+                // POWERBROADCAST_SETTING: a GUID (16 bytes), the data length (4), then the data
+                byte[] guidBytes = new byte[16];
+                System.Runtime.InteropServices.Marshal.Copy(setting, guidBytes, 0, 16);
+                if (new Guid(guidBytes) != GuidConsoleDisplayState) return;
+                if (System.Runtime.InteropServices.Marshal.ReadInt32(setting, 16) < 4) return; // the state is a DWORD
+
+                int state = System.Runtime.InteropServices.Marshal.ReadInt32(setting, 20);
+                bool cameOn = ScreensCameOn(_displayState, state);
+                _displayState = state;
+                if (cameOn)
+                {
+                    App.Log("Screens on: writing the backlight again");
+                    Dispatcher.BeginInvoke((Action)ScheduleBacklightRewrite);
+                }
+            }
+            catch (Exception ex)
+            {
+                App.Log("Screen power notification error: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// A monitor in standby accepts a backlight write and reports the new value, but wakes at its old brightness until
+        /// it's written again (measured on the AORUS FO32U2). Solar Sync's writes during standby stayed unseen, and it
+        /// skipped the rewrite because the value already matched. A repeated value doesn't change anything on screen.
+        /// </summary>
+        private void ScheduleBacklightRewrite()
+        {
+            if (_isExited) return;
+            if (_backlightRewrite == null) _backlightRewrite = new SteppedTimer(BacklightRewriteSeconds, RewriteBacklights);
+            _backlightRewrite.Start();
+        }
+
+        /// <summary>
+        /// Whether the monitor reports the brightness Displicare set, compared in the monitor's own steps (15% and 16% are
+        /// the same step on a 0-50 monitor). Only then is writing it again safe: another value was set on the monitor
+        /// itself (its buttons, another tool), and with Solar Sync off that is the user's to keep.
+        /// </summary>
+        internal static bool BacklightHoldsOurValue(DisplayInfo d)
+        {
+            if (d == null || !d.SupportsDdcCi || !d.UseHardwareBrightness) return false;
+            return MonitorEngine.PercentToRaw((int)d.CurrentBrightness, d.MinBrightness, d.MaxBrightness)
+                == MonitorEngine.PercentToRaw(d.UserBrightness, d.MinBrightness, d.MaxBrightness);
+        }
+
+        /// <summary>Writes each DDC/CI backlight that already holds our value once more. False when there's no point going on.</summary>
+        private bool RewriteBacklights()
+        {
+            if (_isExited) return false;
+            // Off again: a write now is the kind that isn't shown. The screens coming on schedules it again
+            if (_displayState == DisplayStateOff) return false;
+            if (_hardwareTestRunning) return true;
+
+            foreach (var d in _engine.Displays)
+            {
+                if (BacklightHoldsOurValue(d)) _engine.QueueHardwareBrightness(d, d.UserBrightness);
+            }
+            _lastBacklightRewriteUtc = DateTime.UtcNow;
+            return true;
+        }
+
+        internal static bool BacklightRewriteDue(DateTime lastUtc, DateTime nowUtc)
+        {
+            return nowUtc < lastUtc || nowUtc - lastUtc >= SolarBacklightRewriteEvery;
+        }
+
+        /// <summary>
+        /// From the Solar Sync tick. A monitor switched off with its own button (or on another input) accepts Solar Sync's
+        /// writes like one in standby, and comes back without a display change or a screens-on report, so nothing else
+        /// writes its backlight again. Only while Solar Sync drives: otherwise nothing was written behind the user's back.
+        /// </summary>
+        private void RewriteBacklightsForSolarSync()
+        {
+            bool drives = _settings != null && _settings.SolarSyncEnabled && !_manualOverrideActive;
+            if (drives && BacklightRewriteDue(_lastBacklightRewriteUtc, DateTime.UtcNow)) RewriteBacklights();
         }
 
         /// <summary>
@@ -329,8 +599,8 @@ namespace Displicare
             }
         }
 
-        private System.Windows.Threading.DispatcherTimer _hdrRecheckTimer;
-        private int _hdrRechecks;
+        private static readonly int[] HdrRecheckSeconds = { 1, 4 };
+        private SteppedTimer _hdrRecheck;
 
         /// <summary>
         /// Windows reports the display change while HDR is still switching, so the refresh may have read the old state:
@@ -338,25 +608,19 @@ namespace Displicare
         /// </summary>
         private void StartHdrRecheck()
         {
-            if (_hdrRecheckTimer == null)
-            {
-                _hdrRecheckTimer = new System.Windows.Threading.DispatcherTimer();
-                _hdrRecheckTimer.Tick += (s, ev) =>
-                {
-                    _hdrRechecks++;
-                    if (_hdrRechecks >= 2) _hdrRecheckTimer.Stop();
-                    else _hdrRecheckTimer.Interval = TimeSpan.FromSeconds(3);
-                    if (_hardwareTestRunning || !_engine.RecheckHdr()) return;
-                    RebuildRamps();
-                    PopulateDisplays();
-                    BuildMonitorRows();
-                    BuildDisplayHardwareCards();
-                };
-            }
-            _hdrRechecks = 0;
-            _hdrRecheckTimer.Interval = TimeSpan.FromSeconds(1);
-            _hdrRecheckTimer.Stop();
-            _hdrRecheckTimer.Start();
+            if (_hdrRecheck == null) _hdrRecheck = new SteppedTimer(HdrRecheckSeconds, RecheckHdrNow);
+            _hdrRecheck.Start();
+        }
+
+        private bool RecheckHdrNow()
+        {
+            if (_isExited) return false;
+            if (_hardwareTestRunning || !_engine.RecheckHdr()) return true;
+            RebuildRamps();
+            PopulateDisplays();
+            BuildMonitorRows();
+            BuildDisplayHardwareCards();
+            return true;
         }
 
         private void ReassertDisplayState()

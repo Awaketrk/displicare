@@ -91,6 +91,69 @@ namespace Displicare.Tests
         }
 
         [Test]
+        public static void LocationComesFromTheExactTimeZone()
+        {
+            // Regression (2.5.3): zones were matched by a word in their id, so Sydney ("AUS Eastern") got New York and the
+            // screen dimmed at midday
+            double lat, lon;
+            SolarEngine.CoordinatesFor("AUS Eastern Standard Time", TimeSpan.FromHours(10), out lat, out lon);
+            Assert.True(lat < -30 && lon > 150, "Sydney, not New York: " + lat + ", " + lon);
+            SolarEngine.CoordinatesFor("Eastern Standard Time", TimeSpan.FromHours(-5), out lat, out lon);
+            Assert.Near(-74.0, lon, 0.01, "New York");
+            SolarEngine.CoordinatesFor("Central Asia Standard Time", TimeSpan.FromHours(6), out lat, out lon);
+            Assert.True(lon > 60, "Central Asia isn't Chicago: " + lon);
+            SolarEngine.CoordinatesFor("West Pacific Standard Time", TimeSpan.FromHours(10), out lat, out lon);
+            Assert.True(lon > 140, "Guam isn't San Francisco: " + lon);
+            SolarEngine.CoordinatesFor("Turkey Standard Time", TimeSpan.FromHours(3), out lat, out lon);
+            Assert.Near(41.01, lat, 0.01, "Istanbul latitude");
+            Assert.Near(28.97, lon, 0.01, "Istanbul longitude");
+
+            SolarEngine.CoordinatesFor("Some Other Standard Time", TimeSpan.FromHours(5), out lat, out lon);
+            Assert.Near(75.0, lon, 0.01, "an unknown zone: the middle of its offset");
+            Assert.Near(40.0, lat, 0.01, "at 40° north");
+            SolarEngine.CoordinatesFor(null, TimeSpan.FromHours(-3), out lat, out lon);
+            Assert.Near(-45.0, lon, 0.01, "no id");
+        }
+
+        [Test]
+        public static void SunTimesBelongToTheLocalDay()
+        {
+            // Regression (2.5.3): the day was taken in UTC, so in the morning in Tokyo (still yesterday in UTC) and in the
+            // evening in New York (already tomorrow) the times were another day's and the day bar read 100% or 0%
+            DateTime sunrise, noon, sunset;
+            var tokyo = TimeZoneInfo.FindSystemTimeZoneById("Tokyo Standard Time");
+            var morning = new DateTime(2026, 6, 21, 7, 0, 0);
+            SolarEngine.CalculateSunTimes(35.67, 139.65, morning, tokyo, out sunrise, out noon, out sunset);
+            Assert.Equal(morning.Date, sunrise.Date, "Tokyo sunrise is today's");
+            Assert.Equal(morning.Date, sunset.Date, "Tokyo sunset is today's");
+            Assert.True(sunrise < morning && morning < sunset, "at 07:00 the sun is up: " + sunrise + " to " + sunset);
+            Assert.Near(4.4, sunrise.TimeOfDay.TotalHours, 0.3, "Tokyo sunrise around 04:25");
+
+            var newYork = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+            var evening = new DateTime(2026, 6, 21, 20, 0, 0);
+            SolarEngine.CalculateSunTimes(40.71, -74.0, evening, newYork, out sunrise, out noon, out sunset);
+            Assert.Equal(evening.Date, sunrise.Date, "New York sunrise is today's");
+            Assert.Equal(evening.Date, sunset.Date, "New York sunset is today's");
+            Assert.True(sunrise < evening && evening < sunset, "at 20:00 the sun is still up: " + sunrise + " to " + sunset);
+
+            // Kiritimati: UTC+14 at 157° west, where the clock and the longitude are a day apart
+            var kiritimati = TimeZoneInfo.FindSystemTimeZoneById("Line Islands Standard Time");
+            var midday = new DateTime(2026, 6, 21, 12, 0, 0);
+            SolarEngine.CalculateSunTimes(1.87, -157.43, midday, kiritimati, out sunrise, out noon, out sunset);
+            Assert.Equal(midday.Date, noon.Date, "solar noon stays on the day asked for");
+            Assert.True(sunrise < noon && noon < sunset, "sunrise < noon < sunset");
+        }
+
+        [Test]
+        public static void SolarSyncsBrightnessIsNotSavedAsTheUsers()
+        {
+            // Regression (2.5.3): moving a color slider while Solar Sync ran saved the sun's level as the manual brightness,
+            // and turning Solar Sync off "restored" that
+            Assert.Equal(80, MainWindow.BrightnessToSave(true, 80, 35), "the sun's 35% isn't saved");
+            Assert.Equal(35, MainWindow.BrightnessToSave(false, 80, 35), "a manual 35% is");
+        }
+
+        [Test]
         public static void WarmthSyncNeverReplacesTheUsersColor()
         {
             // Regression (2.5.3): warmth sync off reset to 6500 K and moving brightness saved the sun's color, so a preset was lost

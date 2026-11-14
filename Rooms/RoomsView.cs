@@ -856,10 +856,10 @@ namespace Displicare.Rooms
             return box;
         }
 
-        /// <summary>A hotkey such as Ctrl+Alt+2 (empty = none), checked when the box loses focus.</summary>
+        /// <summary>A hotkey such as Ctrl+Alt+Shift+2 (empty = none), checked when the box loses focus.</summary>
         public TextBox HotkeyBox(string value, Action<string> changed)
         {
-            var box = TextField(value, 40, "Ctrl, Alt or Win plus a key, e.g. Ctrl+Alt+2. Empty for none.");
+            var box = TextField(value, 40, "Ctrl, Alt or Win plus a key, e.g. Ctrl+Alt+Shift+2. Empty for none. Ctrl+Alt with a digit alone types a symbol on many keyboards.");
             box.LostKeyboardFocus += (o, e) =>
             {
                 string text = box.Text.Trim();
@@ -867,7 +867,7 @@ namespace Displicare.Rooms
                 if (normalized == null)
                 {
                     box.Text = value ?? "";
-                    notify("Not a hotkey", "Use Ctrl, Alt or Win plus a key, e.g. Ctrl+Alt+2.", true);
+                    notify("Not a hotkey", "Use Ctrl, Alt or Win plus a key, e.g. Ctrl+Alt+Shift+2.", true);
                 }
                 else if (normalized != (value ?? ""))
                 {

@@ -174,10 +174,11 @@ namespace Displicare
             RoomsEnabled = false;
             Rooms = new List<Room>();
             RoomHomeKey = "";
-            RoomHomeHotkey = "Ctrl+Alt+0";
+            RoomHomeHotkey = Displicare.Rooms.Hotkey.Default(0);
             RoomAskToKeep = RoomAskNew;
             RoomController = true;
             RoomStreamScreensOff = true;
+            RoomStreamIgnore = new List<string>();
             RoomShowOverlay = true;
         }
 
@@ -231,6 +232,13 @@ namespace Displicare
         [DataMember]
         public string RoomHomeHotkey { get; set; }
 
+        /// <summary>
+        /// Set once the Ctrl+Alt+digit hotkeys of 2.5.3 and earlier were moved to Ctrl+Alt+Shift+digit
+        /// (<see cref="ConfigManager.MoveHotkeysOffAltGr"/>), so one chosen on purpose afterwards is kept.
+        /// </summary>
+        [DataMember]
+        public bool HotkeysOffAltGr { get; set; }
+
         /// <summary>When to ask "Keep this display layout?": new (until a room's switch was kept once), always or never.</summary>
         [DataMember]
         public string RoomAskToKeep { get; set; }
@@ -242,6 +250,13 @@ namespace Displicare
         /// <summary>While a stream adds a virtual display (Steam Link, Apollo), the physical screens are switched off.</summary>
         [DataMember]
         public bool RoomStreamScreensOff { get; set; }
+
+        /// <summary>
+        /// Names (or parts of names) of virtual displays that aren't streams, next to the second-screen apps Displicare
+        /// knows: the screens stay on while one of these is connected. Only in settings.json.
+        /// </summary>
+        [DataMember]
+        public List<string> RoomStreamIgnore { get; set; }
 
         /// <summary>A short note on the new screen after each switch: room, mode, HDR and sound.</summary>
         [DataMember]
@@ -492,7 +507,24 @@ namespace Displicare
 
             SanitizeRooms(settings);
             EnsureSetups(settings);
+            MoveHotkeysOffAltGr(settings);
             return settings;
+        }
+
+        /// <summary>
+        /// Once per settings file: the safe hotkey and every setup hotkey on Ctrl+Alt+digit (the defaults up to 2.5.3) get
+        /// Shift. Ctrl+Alt is AltGr, so on Turkish, German and many other keyboards they took &gt; £ # $ } and the like away
+        /// from typing. One whose shifted form is already in use stays.
+        /// </summary>
+        internal static void MoveHotkeysOffAltGr(AppSettings settings)
+        {
+            if (settings.HotkeysOffAltGr) return;
+            settings.HotkeysOffAltGr = true;
+            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            used.Add(settings.RoomHomeHotkey ?? "");
+            foreach (var s in settings.Setups) used.Add(s.Hotkey ?? "");
+            settings.RoomHomeHotkey = Rooms.Hotkey.OffAltGr(settings.RoomHomeHotkey, used);
+            foreach (var s in settings.Setups) s.Hotkey = Rooms.Hotkey.OffAltGr(s.Hotkey, used);
         }
 
         /// <summary>
@@ -561,8 +593,11 @@ namespace Displicare
             if (settings.RoomAskToKeep != AppSettings.RoomAskNew && settings.RoomAskToKeep != AppSettings.RoomAskAlways
                 && settings.RoomAskToKeep != AppSettings.RoomAskNever)
                 settings.RoomAskToKeep = AppSettings.RoomAskNew;
+            if (settings.RoomStreamIgnore == null) settings.RoomStreamIgnore = new List<string>();
+            settings.RoomStreamIgnore.RemoveAll(n => string.IsNullOrWhiteSpace(n) || n.Length > 64);
+            if (settings.RoomStreamIgnore.Count > 32) settings.RoomStreamIgnore.RemoveRange(32, settings.RoomStreamIgnore.Count - 32);
             if (settings.RoomHomeKey == null) settings.RoomHomeKey = "";
-            if (settings.RoomHomeHotkey == null) settings.RoomHomeHotkey = "Ctrl+Alt+0";
+            if (settings.RoomHomeHotkey == null) settings.RoomHomeHotkey = Rooms.Hotkey.Default(0);
             else if (settings.RoomHomeHotkey.Length > 0) settings.RoomHomeHotkey = Rooms.Hotkey.Normalize(settings.RoomHomeHotkey) ?? "";
 
             if (settings.Rooms == null) settings.Rooms = new List<Room>();
@@ -622,6 +657,7 @@ namespace Displicare
 
             AppSettings def = new AppSettings();
             EnsureSetups(def);
+            def.HotkeysOffAltGr = true; // new settings start on the Shift hotkeys: nothing to move later
             def.StartWithWindows = IsRunOnStartupEnabled();
             return def;
         }

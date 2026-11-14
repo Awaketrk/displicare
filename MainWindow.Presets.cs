@@ -252,18 +252,8 @@ namespace Displicare
                 return;
             }
 
-            if (_settings != null && _settings.CustomPresets != null)
-            {
-                var cp = _settings.CustomPresets.Find(p =>
-                    string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(p.Id, presetName, StringComparison.OrdinalIgnoreCase));
-                if (cp != null)
-                {
-                    ApplyCustomPreset(cp);
-                    return;
-                }
-            }
-
+            // Built-in presets only: custom ones come by id (ApplyCustomPreset). Up to 2.5.3 a custom preset was looked up
+            // by name here first, so one called "Night Light" took over the built-in's button and tray entry
             var presets = MonitorEngine.GetPresets();
             foreach (var p in presets)
             {

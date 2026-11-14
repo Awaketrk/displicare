@@ -88,13 +88,17 @@ namespace Displicare.Rooms
 
         public static string GetAdapterPath(LUID adapter)
         {
+            // Read from the UI thread, the switch thread and the display refresh's worker
             string cached;
-            if (AdapterPathCache.TryGetValue(adapter.Value, out cached)) return cached;
+            lock (AdapterPathCache)
+            {
+                if (AdapterPathCache.TryGetValue(adapter.Value, out cached)) return cached;
+            }
             var name = new DISPLAYCONFIG_ADAPTER_NAME();
             name.header = DisplayConfigApi.Header(DisplayConfigApi.DEVICE_INFO_GET_ADAPTER_NAME,
                 Marshal.SizeOf(typeof(DISPLAYCONFIG_ADAPTER_NAME)), adapter, 0);
             string path = DisplayConfigApi.DisplayConfigGetDeviceInfo(ref name) == DisplayConfigApi.ERROR_SUCCESS ? name.adapterDevicePath : "";
-            AdapterPathCache[adapter.Value] = path;
+            lock (AdapterPathCache) AdapterPathCache[adapter.Value] = path;
             return path;
         }
 

@@ -276,10 +276,23 @@ namespace Displicare
             if (d.SupportsDdcCi)
             {
                 uint v = 0;
-                s.HasBacklight = await Task.Run(() => _engine.ReadBacklight(d, out v));
-                s.Backlight = v;
+                bool read = await Task.Run(() => _engine.ReadBacklight(d, out v));
+                // A monitor that misses this one read (just woken, busy switching HDR) still gets its backlight changed
+                // by the test: put it back to what Displicare last set. Up to 2.5.3 it was left at the test's 100%
+                s.Backlight = read ? v : AssumedBacklight(d.UseHardwareBrightness, d.UserBrightness);
+                s.HasBacklight = true;
+                if (!read) Line("  " + d.DeviceName + ": backlight couldn't be read before the test; it goes back to " + s.Backlight + "%");
             }
             return s;
+        }
+
+        /// <summary>
+        /// The backlight a DDC/CI monitor is taken to have when it can't be read: the brightness Displicare set in
+        /// hardware mode, and 100 in software mode, where the backlight is kept at full.
+        /// </summary>
+        internal static uint AssumedBacklight(bool hardwareBrightness, int userBrightness)
+        {
+            return hardwareBrightness ? (uint)Math.Max(0, Math.Min(100, userBrightness)) : 100u;
         }
 
         private async Task Restore(List<Snapshot> snapshots)

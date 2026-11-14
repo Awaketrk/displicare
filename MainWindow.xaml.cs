@@ -95,6 +95,7 @@ namespace Displicare
             _solarTimer.Tick += (s, ev) =>
             {
                 UpdateSolarCircadian(false);
+                RewriteBacklightsForSolarSync();
             };
 
             InitializeComponent();
@@ -362,6 +363,7 @@ namespace Displicare
                 if (_hwndSource != null)
                 {
                     _hwndSource.AddHook(WndProc);
+                    WatchScreenPower(helper.Handle);
                 }
 
                 _shellHookMsg = App.RegisterWindowMessage("SHELLHOOK");
@@ -390,10 +392,9 @@ namespace Displicare
                     // RunHardwareTestAsync applies the solar target itself when a test started at launch ends
                     if (_settings != null && _settings.SolarSyncEnabled && !_hardwareTestRunning)
                     {
-                        _engine.RefreshDisplays();
-                        PopulateDisplays();
                         // Not while paused by a manual change: that overwrote a preset a few seconds after each start
-                        UpdateSolarCircadian(!_manualOverrideActive);
+                        _forceSolarAfterRefresh = true;
+                        HandleDisplayTopologyChange();
                     }
                 }
                 catch (Exception ex)
@@ -537,8 +538,8 @@ namespace Displicare
 
         private void BtnRefresh_Click(object sender, RoutedEventArgs e)
         {
+            _announceRefresh = true; // the screens are read off the UI thread; the status follows when that's done
             HandleDisplayTopologyChange();
-            TxtStatus.Text = "Refreshed " + _engine.Displays.Count + " connected displays.";
         }
 
         private void BtnClose_Click(object sender, RoutedEventArgs e)
@@ -641,6 +642,7 @@ namespace Displicare
 
             ShutdownRooms();
             ShutdownBrightnessKeys();
+            StopWatchingScreenPower();
 
             if (_solarTimer != null)
             {

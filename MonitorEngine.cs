@@ -260,6 +260,9 @@ namespace Displicare
                 return true;
             }, IntPtr.Zero);
 
+            var usedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var claimed = new HashSet<DisplayInfo>();
+
             // Step 2: Enumerate Display Devices to get friendly names
             DISPLAY_DEVICE d = new DISPLAY_DEVICE();
             d.cb = Marshal.SizeOf(d);
@@ -295,12 +298,23 @@ namespace Displicare
                     string edidName;
                     if (edidNames.TryGetValue(devName, out edidName)) friendlyName = edidName;
 
+                    // Two monitors of the same model would be one screen: the second gets a key of its own
+                    monitorKey = UniqueMonitorKey(monitorKey, usedKeys);
+                    if (monitorKey != null) usedKeys.Add(monitorKey);
+
                     bool isPrimary = (d.StateFlags & 4) != 0;
 
                     DisplayInfo existing = null;
                     bool hasExisting = (monitorKey != null && oldMap.TryGetValue(monitorKey, out existing)) ||
                                        (monitorKey == null && oldMap.TryGetValue(devName, out existing)) ||
                                        (!string.IsNullOrEmpty(friendlyName) && TryFindExistingByFriendly(oldMap, friendlyName, out existing));
+                    // One screen's settings and ramps go to one screen only: found by name, a second monitor of the same
+                    // model would otherwise share the first one's, down to the same ramp arrays
+                    if (hasExisting && existing != null && !claimed.Add(existing))
+                    {
+                        hasExisting = false;
+                        existing = null;
+                    }
 
                     var disp = new DisplayInfo();
                     disp.DeviceName = devName;
@@ -454,6 +468,22 @@ namespace Displicare
             string[] parts = deviceId.Split('\\');
             return parts.Length >= 2 && parts[0].Equals("MONITOR", StringComparison.OrdinalIgnoreCase) && parts[1].Length > 0
                 ? parts[1].ToUpperInvariant() : null;
+        }
+
+        /// <summary>
+        /// The key for a monitor when others are already on: its model, or for a second monitor of the same model
+        /// "GBT3214#2" (then #3...), in the order of the outputs. Up to 2.5.3 two identical monitors shared one key, so
+        /// with screen sync off they couldn't keep settings of their own. While only one of them is on, it is the plain
+        /// model again.
+        /// </summary>
+        internal static string UniqueMonitorKey(string model, ICollection<string> taken)
+        {
+            if (string.IsNullOrEmpty(model) || taken == null || !taken.Contains(model)) return model;
+            for (int n = 2; ; n++)
+            {
+                string key = model + "#" + n;
+                if (!taken.Contains(key)) return key;
+            }
         }
 
         /// <summary>

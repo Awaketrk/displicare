@@ -39,7 +39,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "startwithwindows"; Description: "Launch Displicare automatically on Windows startup (System Tray)"; GroupDescription: "Startup Options:"
+; Only offered on a first install. On an update the app's own "Start with Windows" setting stands: Setup remembers the
+; task, so up to 2.5.3 every update wrote the startup entry again after it had been turned off in the app.
+Name: "startwithwindows"; Description: "Launch Displicare automatically on Windows startup (System Tray)"; GroupDescription: "Startup Options:"; Check: IsFirstInstall
 
 [Files]
 Source: "{#SourceDir}\bin\Release\Displicare.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -61,6 +63,25 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 ; Runs before the files are removed: closes a running Displicare (so its files aren't in use), then puts Windows'
 ; gamma ramp limit (GdiIcmGammaRange) back if Deeper software dimming changed it (Windows asks for admin only then).
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "DisplicareUninstall"
+
+[Code]
+const
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{6D80A21B-4032-4752-9A92-6F0110825B3E}_is1';
+
+var
+  FirstInstall: Boolean;
+
+function InitializeSetup(): Boolean;
+begin
+  { Read before anything is installed: Setup writes this key itself at the end }
+  FirstInstall := not RegKeyExists(HKEY_CURRENT_USER, UninstallKey) and not RegKeyExists(HKEY_LOCAL_MACHINE, UninstallKey);
+  Result := True;
+end;
+
+function IsFirstInstall(): Boolean;
+begin
+  Result := FirstInstall;
+end;
 
 
 

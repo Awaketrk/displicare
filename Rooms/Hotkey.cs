@@ -71,7 +71,43 @@ namespace Displicare.Rooms
             return TryParse(text, out mods, out key) ? Format(mods, key) : null;
         }
 
-        /// <summary>First free Ctrl+Alt+1..9 for a new profile, or null when all are taken.</summary>
+        /// <summary>
+        /// Ctrl+Alt is AltGr, and AltGr with a digit types a symbol on many keyboards (Turkish: &gt; £ # $ ½ … }), so a hotkey
+        /// on it takes that symbol away everywhere.
+        /// </summary>
+        public static bool IsAltGrDigit(string text)
+        {
+            uint mods, key;
+            return TryParse(text, out mods, out key) && mods == (MOD_CONTROL | MOD_ALT) && key >= '0' && key <= '9';
+        }
+
+        /// <summary>The same hotkey with Shift held as well; text that isn't a hotkey comes back as it is.</summary>
+        public static string WithShift(string text)
+        {
+            uint mods, key;
+            return TryParse(text, out mods, out key) ? Format(mods | MOD_SHIFT, key) : text;
+        }
+
+        /// <summary>
+        /// A Ctrl+Alt+digit hotkey moved to Ctrl+Alt+Shift+digit, unless that is one of <paramref name="used"/>; anything
+        /// else as it is. What it returns is added to <paramref name="used"/>.
+        /// </summary>
+        public static string OffAltGr(string text, ICollection<string> used)
+        {
+            if (!IsAltGrDigit(text)) return text;
+            string shifted = WithShift(text);
+            if (used.Contains(shifted)) return text;
+            used.Add(shifted);
+            return shifted;
+        }
+
+        /// <summary>The default hotkeys: Ctrl+Alt+Shift and a digit (not Ctrl+Alt alone, see <see cref="IsAltGrDigit"/>).</summary>
+        public static string Default(int digit)
+        {
+            return "Ctrl+Alt+Shift+" + digit;
+        }
+
+        /// <summary>First free Ctrl+Alt+Shift+1..9 for a new profile, or null when all are taken.</summary>
         public static string NextFree(IEnumerable<string> taken)
         {
             var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -82,7 +118,7 @@ namespace Displicare.Rooms
             }
             for (int i = 1; i <= 9; i++)
             {
-                string candidate = "Ctrl+Alt+" + i;
+                string candidate = Default(i);
                 if (!used.Contains(candidate)) return candidate;
             }
             return null;

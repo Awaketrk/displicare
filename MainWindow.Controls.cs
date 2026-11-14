@@ -154,8 +154,11 @@ namespace Displicare
                 }
             }
 
-            // Persist into memory settings
-            _settings.Brightness = brightness;
+            // Persist into memory settings. While Solar Sync drives, the slider holds the sun's level: saving it lost the
+            // user's own brightness as soon as a color slider moved or a preset was picked (up to 2.5.3), and turning
+            // Solar Sync off then "restored" the sun's
+            bool solarDrivesBrightness = _settings.SolarSyncEnabled && !_manualOverrideActive;
+            _settings.Brightness = BrightnessToSave(solarDrivesBrightness, _settings.Brightness, brightness);
             // Under warmth sync the slider holds the sun's color: saving it lost the user's as soon as brightness moved
             if (!WarmthSyncDrivesColor) _settings.ColorTemperature = kelvin;
             _settings.RedGain = rGain;
@@ -174,6 +177,12 @@ namespace Displicare
                 _saveDebounceTimer.Stop();
                 _saveDebounceTimer.Start();
             }
+        }
+
+        /// <summary>The manual brightness to keep: while Solar Sync drives, the slider shows the sun's level, not the user's.</summary>
+        internal static int BrightnessToSave(bool solarDrives, int savedBrightness, int sliderBrightness)
+        {
+            return solarDrives ? savedBrightness : sliderBrightness;
         }
 
         /// <summary>

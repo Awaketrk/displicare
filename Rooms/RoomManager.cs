@@ -329,7 +329,7 @@ namespace Displicare.Rooms
             LogScreensComingAndGoing();
         }
 
-        /// <summary>The first Ctrl+Alt+1..9 no setup and no home hotkey uses, or "".</summary>
+        /// <summary>The first Ctrl+Alt+Shift+1..9 no setup and no home hotkey uses, or "".</summary>
         string NextFreeHotkey()
         {
             var taken = new List<string>();
@@ -549,7 +549,16 @@ namespace Displicare.Rooms
         public static void SizeIn(SetupScreen entry, DisplayMode? native, out int width, out int height)
         {
             if (entry != null && entry.Width > 0) { width = entry.Width; height = entry.Height; return; }
-            if (native != null) { width = native.Value.Width; height = native.Value.Height; return; }
+            if (native != null)
+            {
+                // A screen turned to portrait was placed at its native size on its side; the EDID only knows it lying
+                // down, which (up to 2.5.3) moved its neighbours around at every switch
+                bool portrait = entry != null && entry.Placed && native.Value.Width != native.Value.Height
+                    && entry.PlacedWidth == native.Value.Height && entry.PlacedHeight == native.Value.Width;
+                width = portrait ? entry.PlacedWidth : native.Value.Width;
+                height = portrait ? entry.PlacedHeight : native.Value.Height;
+                return;
+            }
             if (entry != null && entry.Placed) { width = entry.PlacedWidth; height = entry.PlacedHeight; return; }
             width = 1920;
             height = 1080;
@@ -1663,7 +1672,34 @@ namespace Displicare.Rooms
         /// </summary>
         internal static bool IsStreamTarget(TargetInfo t)
         {
-            return t.Active && t.IsVirtual && t.OutputTechnology != DisplayConfigApi.OUTPUT_TECHNOLOGY_MIRACAST;
+            return IsStreamTarget(t, null);
+        }
+
+        /// <param name="notStreams">More names of virtual displays that aren't streams (<see cref="AppSettings.RoomStreamIgnore"/>).</param>
+        internal static bool IsStreamTarget(TargetInfo t, IList<string> notStreams)
+        {
+            return t.Active && t.IsVirtual && t.OutputTechnology != DisplayConfigApi.OUTPUT_TECHNOLOGY_MIRACAST
+                && !IsSecondScreen(t.Identity, notStreams);
+        }
+
+        /// <summary>Apps that make a tablet or another PC an extra monitor: a virtual display, but you sit in front of the others.</summary>
+        static readonly string[] SecondScreenApps = { "spacedesk", "superdisplay", "duet", "luna display", "deskreen" };
+
+        /// <summary>
+        /// A virtual display that is a second screen rather than a stream, by a known app's name (or one from the
+        /// settings) in its name or device path. Up to 2.5.3 every virtual display counted as a stream, so connecting a
+        /// tablet as a monitor turned the real screens off.
+        /// </summary>
+        internal static bool IsSecondScreen(DisplayIdentity identity, IList<string> more)
+        {
+            if (identity == null) return false;
+            string text = (identity.FriendlyName ?? "") + "\n" + (identity.DevicePath ?? "") + "\n" + (identity.AdapterPath ?? "");
+            foreach (var name in SecondScreenApps)
+                if (text.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            if (more != null)
+                foreach (var name in more)
+                    if (!string.IsNullOrWhiteSpace(name) && text.IndexOf(name.Trim(), StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
         }
 
         /// <summary>Called after every display change: turns the physical screens off when a stream starts, and back on after.</summary>
@@ -1673,7 +1709,7 @@ namespace Displicare.Rooms
             var physical = new List<string>();
             foreach (var t in lastTargets)
             {
-                if (IsStreamTarget(t)) streaming = true;
+                if (IsStreamTarget(t, settings.RoomStreamIgnore)) streaming = true;
                 else if (t.Active && !t.IsVirtual) physical.Add(t.Identity != null ? ModelKey(t.Identity.DevicePath) : null);
             }
             // Windows often does the switch itself (it remembers "only the stream's display" for this set of screens), so
@@ -1834,7 +1870,7 @@ namespace Displicare.Rooms
 
         bool StreamOn()
         {
-            foreach (var t in lastTargets) if (IsStreamTarget(t)) return true;
+            foreach (var t in lastTargets) if (IsStreamTarget(t, settings.RoomStreamIgnore)) return true;
             return false;
         }
 
@@ -1867,7 +1903,8 @@ namespace Displicare.Rooms
                 lastTargets = DisplayTopology.DescribeTargets(DisplayTopology.Query(DisplayConfigApi.QDC_ALL_PATHS));
                 foreach (var t in lastTargets) if (t.Active && !t.IsVirtual) physical = true;
                 foreach (var d in DisplayTopology.GetActiveDisplays())
-                    if (d.IsVirtual && d.OutputTechnology != DisplayConfigApi.OUTPUT_TECHNOLOGY_MIRACAST) stream = d;
+                    if (d.IsVirtual && d.OutputTechnology != DisplayConfigApi.OUTPUT_TECHNOLOGY_MIRACAST
+                        && !IsSecondScreen(d.Identity, settings.RoomStreamIgnore)) stream = d;
                 if (stream == null || !physical) return; // the stream ended, or the screens are off already
                 // Not the layout now: when the stream's display arrives, Windows or Steam may already have turned a screen off.
                 beforeStream = lastLayout ?? LayoutEngine.Capture("Before streaming", false);
